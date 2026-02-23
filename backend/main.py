@@ -59,6 +59,20 @@ class ProcessRequest(BaseModel):
     email_context: Optional[str] = None
     options: Optional[Dict[str, bool]] = None
 
+class LogScrubRequest(BaseModel):
+    total_input: int
+    final_count: int
+    dnd_removed: int
+    sub_removed: int
+    unsub_removed: int
+    operator_removed: int
+    msisdn_list: List[str] = []
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
 
 @app.get("/fetch-request")
 async def fetch_request():
@@ -71,6 +85,19 @@ async def fetch_request():
         return {"message": "No new requests found"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/login")
+async def login(request: LoginRequest):
+    if db.verify_admin_user(request.username, request.password):
+        # A simple token for frontend session management
+        return {"status": "success", "token": "obd_auth_token_secret_123"}
+    raise HTTPException(status_code=401, detail="Invalid username or password")
+
+@app.post("/create-user")
+async def create_user(request: LoginRequest):
+    if db.create_admin_user(request.username, request.password):
+        return {"status": "success", "message": f"User {request.username} successfully created in database"}
+    raise HTTPException(status_code=500, detail="Failed to create user or user already exists")
 
 @app.post("/scrub")
 async def scrub_base(request: ProcessRequest, background_tasks: BackgroundTasks):
@@ -103,15 +130,8 @@ def post_scrub_processing(final_base, report):
     start_time = time.time()
     print("--- STARTING POST-SCRUB BACKGROUND PROCESSING ---")
     
-    # 1. Email Report FIRST (User gets results quickly)
-    try:
-        print(f"DEBUG: Sending scrubbing report via email...")
-        email_ok, email_msg = email_module.send_scrub_report(report, msisdns=final_base)
-        print(f"DEBUG: Email Status: {'SENT' if email_ok else 'FAILED: ' + email_msg}")
-    except Exception as e:
-        print(f"ERROR: Background email failed: {e}")
-
-    # 2. Save to Database SECOND (Can take long for 100k+ rows)
+    # 1. Save to Database FIRST (So UI has immediate access to results)
+    table_name = "NONE"
     try:
         print(f"DEBUG: Saving {len(final_base)} targets to database...")
         db_start = time.time()
@@ -120,6 +140,14 @@ def post_scrub_processing(final_base, report):
         print(f"DEBUG: DB Save Status: {'SUCCESS (' + table_name + ')' if save_ok else 'FAILED'} (Took {duration:.2f}s)")
     except Exception as e:
         print(f"ERROR: Background DB save failed: {e}")
+
+    # 2. Email Report SECOND (Subject to network firewalls/timeouts)
+    try:
+        print(f"DEBUG: Sending scrubbing report via email...")
+        email_ok, email_msg = email_module.send_scrub_report(report, msisdns=final_base)
+        print(f"DEBUG: Email Status: {'SENT' if email_ok else 'FAILED: ' + email_msg}")
+    except Exception as e:
+        print(f"ERROR: Background email failed: {e}")
         
     print(f"--- COMPLETED POST-SCRUB BACKGROUND PROCESSING (Total: {time.time() - start_time:.2f}s) ---")
 
@@ -141,6 +169,34 @@ async def launch_campaign(request: LaunchRequest):
             raise HTTPException(status_code=500, detail=message)
     except Exception as e:
         print(f"DEBUG: Launch error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/log-scrub-entry")
+async def log_scrub_entry(request: LogScrubRequest):
+    """Logs the scrub statistics explicitly via button click."""
+    try:
+        success, message = db.log_scrub_history(request.model_dump())
+        if success:
+            return {"status": "success", "message": message}
+        else:
+            raise HTTPException(status_code=500, detail=message)
+    except Exception as e:
+        print(f"DEBUG: Log error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/scrub-history")
+async def get_scrub_history():
+    """Fetches all scrub history log entries."""
+    try:
+        entries = db.get_scrub_history()
+        # Convert datetime objects to string for JSON serialization
+        for entry in entries:
+            for k, v in entry.items():
+                if hasattr(v, 'isoformat'):
+                    entry[k] = v.isoformat()
+        return {"status": "success", "data": entries}
+    except Exception as e:
+        print(f"DEBUG: Fetch history error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/verify-email")

@@ -20,7 +20,18 @@ import {
   Info,
   CheckCircle2,
   XCircle,
-  Activity
+  Activity,
+  Menu,
+  History,
+  Lock,
+  User,
+  LogOut,
+  Settings,
+  X,
+  Users,
+  PieChart,
+  Palette,
+  ChevronDown
 } from 'lucide-react';
 const getApiBase = () => {
   if (typeof window === 'undefined') return 'http://localhost:8000';
@@ -72,6 +83,54 @@ export default function Dashboard() {
 
   // Theme State & Persistence
   const [theme, setTheme] = useState('dark');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [historyData, setHistoryData] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Authentication State
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentView, setCurrentView] = useState('landing');
+  const [loginCreds, setLoginCreds] = useState({ username: '', password: '' });
+  const [loginError, setLoginError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem('obd_token');
+    if (token) setIsAuthenticated(true);
+  }, []);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+    setIsLoggingIn(true);
+    try {
+      const res = await fetch(`${API_BASE}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginCreds)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem('obd_token', data.token);
+        setIsAuthenticated(true);
+      } else {
+        const err = await res.json();
+        setLoginError(err.detail || 'Invalid credentials');
+      }
+    } catch (err) {
+      setLoginError('Network Error. Is backend running?');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('obd_token');
+    setIsAuthenticated(false);
+    setCurrentView('landing');
+  };
+
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('obd-theme') || 'dark';
@@ -79,11 +138,15 @@ export default function Dashboard() {
     document.documentElement.setAttribute('data-theme', savedTheme);
   }, []);
 
+  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
+  const themes = ['dark', 'light', 'midnight', 'cyberpunk', 'forest', 'aurora'];
   const toggleTheme = () => {
-    const newTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(newTheme);
-    localStorage.setItem('obd-theme', newTheme);
-    document.documentElement.setAttribute('data-theme', newTheme);
+    const currentIndex = themes.indexOf(theme);
+    const nextIndex = (currentIndex + 1) % themes.length;
+    const nextTheme = themes[nextIndex];
+    setTheme(nextTheme);
+    localStorage.setItem('obd-theme', nextTheme);
+    document.documentElement.setAttribute('data-theme', nextTheme);
   };
 
   useEffect(() => {
@@ -241,6 +304,49 @@ export default function Dashboard() {
     }
   };
 
+  const handleLogScrubEntry = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/log-scrub-entry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          total_input: counts.total,
+          final_count: counts.final,
+          dnd_removed: sessionStats.dnd,
+          sub_removed: sessionStats.sub,
+          unsub_removed: sessionStats.unsub,
+          operator_removed: sessionStats.operator,
+          msisdn_list: cleanedMsisdns
+        })
+      });
+      const data = await res.json();
+      if (res.ok) alert(`SUCCESS: ${data.message}`);
+      else alert(`ERROR: ${data.detail || 'Failed to log entry'}`);
+    } catch (err) {
+      alert(`Network Error: ${err.message}`);
+    }
+  };
+
+  const fetchScrubHistory = async () => {
+    setIsHistoryModalOpen(true);
+    setIsMenuOpen(false);
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/scrub-history`);
+      if (res.ok) {
+        const data = await res.json();
+        setHistoryData(data.data || []);
+      } else {
+        alert("Failed to fetch history.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error fetching history.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   const generateFlowFromDoc = async () => {
     if (!docText.trim()) return;
     setFlowLoading(true);
@@ -267,37 +373,629 @@ export default function Dashboard() {
     }
   };
 
-  return (
-    <div className="dashboard-container">
-      <header>
-        <div>
-          <h1 className="logo-text">OBD OUTSMART</h1>
-          <p className="subtitle">Automated Content & Scrubber Intelligence</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white-5 border border-white-10">
-            <div className="animate-pulse w-2 h-2 rounded-full" style={{ backgroundColor: apiColor }}></div>
-            <span className="text-[10px] uppercase tracking-tighter font-bold" style={{ color: apiColor }}>
-              Backend: {backendStatus}
-            </span>
+  if (!isAuthenticated) {
+    return (
+      <div
+        className="flex items-center justify-center relative overflow-hidden"
+        data-theme={theme}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          width: '100vw',
+          height: '100vh',
+          background: 'var(--bg-main)',
+          fontFamily: "'Inter', sans-serif",
+          overflow: 'auto',
+          zIndex: 9999
+        }}
+      >
+        {/* Environmental Glows - Theme Aware */}
+        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full opacity-[0.1] blur-[120px]" style={{ background: 'var(--accent-cyan)' }} />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full opacity-[0.05] blur-[100px]" style={{ background: 'var(--accent-purple)' }} />
+
+        {/* Theme Dropdown for Login */}
+        <div style={{
+          position: 'absolute',
+          top: '40px',
+          right: '40px',
+          zIndex: 10000
+        }}>
+          <div className="relative">
+            <button
+              onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}
+              className="flex items-center gap-3 px-5 h-12 rounded-2xl glass-action shadow-xl hover:scale-105 transition-all"
+              style={{ background: 'var(--bg-glass-heavy)', border: '1px solid var(--glass-border)', color: 'var(--text-main)', cursor: 'pointer' }}
+            >
+              <div className="flex flex-col items-start leading-tight">
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-50">Theme</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">{theme}</span>
+              </div>
+              <ChevronDown size={14} className={`ml-2 transition-transform ${isThemeMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            <AnimatePresence>
+              {isThemeMenuOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                  className="absolute right-0 mt-3 p-3 rounded-2xl glass-panel shadow-2xl min-w-[200px]"
+                  style={{ background: 'var(--bg-glass-heavy)', border: '1px solid var(--glass-border)', backdropFilter: 'blur(40px)' }}
+                >
+                  <div className="grid grid-cols-1 gap-2">
+                    {themes.map(t => (
+                      <button
+                        key={t}
+                        onClick={() => {
+                          setTheme(t);
+                          localStorage.setItem('obd-theme', t);
+                          document.documentElement.setAttribute('data-theme', t);
+                          setIsThemeMenuOpen(false);
+                        }}
+                        className={`flex items-center gap-3 w-full p-3 rounded-xl transition-all ${theme === t ? 'bg-emerald-500/10 border-emerald-500/20' : 'hover:bg-white-5'}`}
+                        style={{ border: '1px solid transparent', cursor: 'pointer', textAlign: 'left' }}
+                      >
+                        <div style={{
+                          width: '10px',
+                          height: '10px',
+                          borderRadius: '50%',
+                          background: t === 'dark' ? '#0f172a' : t === 'light' ? '#fff' : t === 'midnight' ? '#1e1b4b' : t === 'cyberpunk' ? '#ff00ff' : t === 'forest' ? '#10b981' : '#a855f7',
+                          boxShadow: '0 0 10px rgba(0,0,0,0.1)'
+                        }} />
+                        <span
+                          className="text-[11px] font-bold uppercase tracking-wider"
+                          style={{ color: theme === t ? 'var(--accent-emerald)' : 'var(--text-main)' }}
+                        >
+                          {theme === t ? `• ${t}` : t}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
-          <button className="theme-toggle" onClick={toggleTheme}>
-            {theme === 'dark' ? '☀️' : '🌙'}
+        </div>
+
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5, ease: 'easeOut' }}
+          className="relative z-10"
+          style={{
+            width: '100%',
+            maxWidth: '420px',
+            background: 'var(--bg-main)',
+            borderRadius: '40px',
+            boxShadow: theme === 'light'
+              ? '15px 15px 30px #d1d9e6, -15px -15px 30px #ffffff'
+              : '15px 15px 30px rgba(0,0,0,0.4), -15px -15px 30px rgba(255,255,255,0.02)',
+            overflow: 'hidden',
+            margin: '20px',
+            border: '1px solid var(--glass-border)'
+          }}
+        >
+          {/* Header Banner */}
+          <div style={{
+            background: 'linear-gradient(135deg, var(--accent-emerald) 0%, #059669 100%)',
+            padding: '40px 20px',
+            textAlign: 'center',
+            boxShadow: 'inset 0 -5px 15px rgba(0,0,0,0.1)'
+          }}>
+            <h1 style={{
+              color: 'white',
+              fontSize: '2.2rem',
+              fontWeight: '800',
+              letterSpacing: '-0.02em',
+              margin: 0,
+              textShadow: '0 2px 4px rgba(247, 247, 247, 0.5)'
+            }}>
+              Sign In
+            </h1>
+          </div>
+
+          {/* Form Section */}
+          <div style={{ padding: '50px 40px' }}>
+            <form onSubmit={handleLogin} className="flex flex-col gap-8">
+              <div className="flex flex-col gap-2">
+                <div style={{
+                  position: 'relative',
+                  background: 'var(--bg-main)',
+                  borderRadius: '20px',
+                  boxShadow: theme === 'light'
+                    ? 'inset 6px 6px 12px #d1d9e6, inset -6px -6px 12px #ffffff'
+                    : 'inset 6px 6px 12px rgba(0,0,0,0.5), inset -6px -6px 12px rgba(255,255,255,0.03)',
+                  padding: '5px'
+                }}>
+                  <input
+                    type="text"
+                    style={{
+                      width: '100%',
+                      background: 'transparent',
+                      border: 'none',
+                      padding: '15px 20px',
+                      fontSize: '1rem',
+                      color: 'var(--text-main)',
+                      outline: 'none',
+                      fontWeight: '500'
+                    }}
+                    placeholder="Username"
+                    value={loginCreds.username}
+                    onChange={(e) => setLoginCreds({ ...loginCreds, username: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <div style={{
+                  position: 'relative',
+                  background: 'var(--bg-main)',
+                  borderRadius: '20px',
+                  boxShadow: theme === 'light'
+                    ? 'inset 6px 6px 12px #d1d9e6, inset -6px -6px 12px #ffffff'
+                    : 'inset 6px 6px 12px rgba(0,0,0,0.5), inset -6px -6px 12px rgba(255,255,255,0.03)',
+                  padding: '5px'
+                }}>
+                  <input
+                    type="password"
+                    style={{
+                      width: '100%',
+                      background: 'transparent',
+                      border: 'none',
+                      padding: '15px 20px',
+                      fontSize: '1rem',
+                      color: 'var(--text-main)',
+                      outline: 'none',
+                      fontWeight: '500'
+                    }}
+                    placeholder="Password"
+                    value={loginCreds.password}
+                    onChange={(e) => setLoginCreds({ ...loginCreds, password: e.target.value })}
+                    required
+                  />
+                </div>
+                <div style={{ textAlign: 'right', marginTop: '8px' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', cursor: 'pointer', fontWeight: '500' }}>Forgot Username / Password?</span>
+                </div>
+              </div>
+
+              {loginError && (
+                <div style={{
+                  background: 'rgba(244, 63, 94, 0.1)',
+                  border: '1px solid rgba(244, 63, 94, 0.2)',
+                  color: 'var(--accent-rose)',
+                  padding: '12px',
+                  borderRadius: '15px',
+                  fontSize: '0.8rem',
+                  textAlign: 'center',
+                  fontWeight: '600'
+                }}>
+                  {loginError}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                style={{
+                  background: 'linear-gradient(135deg, var(--accent-emerald) 0%, #059669 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '20px',
+                  padding: '18px',
+                  fontSize: '0.9rem',
+                  fontWeight: '800',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  cursor: 'pointer',
+                  boxShadow: theme === 'light'
+                    ? '6px 6px 12px #c1c9d6, -6px -6px 12px #ffffff'
+                    : '6px 6px 12px rgba(0,0,0,0.3)',
+                  transition: 'all 0.2s ease',
+                  marginTop: '10px'
+                }}
+                disabled={isLoggingIn}
+              >
+                {isLoggingIn ? 'Verifying...' : 'SIGN IN'}
+              </button>
+
+              <div style={{ textAlign: 'center', marginTop: '30px' }}>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-dim)', margin: '0 0 10px 0' }}>Don't have an account?</p>
+                <span style={{ fontSize: '0.9rem', color: 'var(--accent-emerald)', fontWeight: '800', cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sign Up Now</span>
+              </div>
+            </form>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (currentView === 'landing') {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen relative overflow-hidden" data-theme={theme} style={{ background: 'var(--bg-main)' }}>
+
+        {/* Theme Dropdown for Landing */}
+        <div style={{
+          position: 'absolute',
+          top: '40px',
+          left: '40px',
+          zIndex: 10000
+        }}>
+          <div className="relative">
+            <button
+              onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}
+              className="flex items-center gap-3 px-5 h-12 rounded-2xl glass-action shadow-xl hover:scale-105 transition-all text-left"
+              style={{ background: 'var(--bg-glass-heavy)', border: '1px solid var(--glass-border)', color: 'var(--text-main)', cursor: 'pointer' }}
+            >
+              <div className="flex flex-col items-start leading-tight">
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-50">Theme</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">{theme}</span>
+              </div>
+              <ChevronDown size={14} className={`ml-2 transition-transform ${isThemeMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            <AnimatePresence>
+              {isThemeMenuOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                  className="absolute left-0 mt-3 p-3 rounded-2xl glass-panel shadow-2xl min-w-[200px]"
+                  style={{ background: 'var(--bg-glass-heavy)', border: '1px solid var(--glass-border)', backdropFilter: 'blur(40px)' }}
+                >
+                  <div className="grid grid-cols-1 gap-2">
+                    {themes.map(t => (
+                      <button
+                        key={t}
+                        onClick={() => {
+                          setTheme(t);
+                          localStorage.setItem('obd-theme', t);
+                          document.documentElement.setAttribute('data-theme', t);
+                          setIsThemeMenuOpen(false);
+                        }}
+                        className={`flex items-center gap-3 w-full p-3 rounded-xl transition-all ${theme === t ? 'bg-emerald-500/10 border-emerald-500/20' : 'hover:bg-white-5'}`}
+                        style={{ border: '1px solid transparent', cursor: 'pointer', textAlign: 'left' }}
+                      >
+                        <div style={{
+                          width: '10px',
+                          height: '10px',
+                          borderRadius: '50%',
+                          background: t === 'dark' ? '#0f172a' : t === 'light' ? '#fff' : t === 'midnight' ? '#1e1b4b' : t === 'cyberpunk' ? '#ff00ff' : t === 'forest' ? '#10b981' : '#a855f7',
+                          boxShadow: '0 0 10px rgba(0,0,0,0.1)'
+                        }} />
+                        <span
+                          className="text-[11px] font-bold uppercase tracking-wider"
+                          style={{ color: theme === t ? 'var(--accent-emerald)' : 'var(--text-main)' }}
+                        >
+                          {theme === t ? `• ${t}` : t}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+
+        <div style={{ position: 'absolute', top: '40px', right: '40px' }}>
+          <button onClick={handleLogout} className="flex items-center gap-2 transition-all font-bold tracking-widest uppercase" style={{ color: 'var(--text-dim)', fontSize: '0.75rem', cursor: 'pointer', background: 'transparent', border: 'none' }}>
+            <LogOut size={16} /> Logout
+          </button>
+        </div>
+
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center" style={{ marginBottom: '64px', marginTop: '40px' }}>
+          <h1 className="font-light tracking-widest mb-4" style={{ fontSize: '2.5rem', color: 'var(--text-main)', margin: '0 0 16px 0' }}>OBD <span className="font-bold" style={{ color: 'var(--accent-cyan)' }}>SERVICES</span></h1>
+          <p className="text-sm" style={{ color: 'var(--text-dim)', maxWidth: '450px', margin: '0 auto' }}>Select a module to continue to the administration dashboard and configure your automated workflows.</p>
+        </motion.div>
+
+        <div className="flex flex-wrap justify-center" style={{ gap: '20px', width: '100%', maxWidth: '1200px', padding: '0 20px' }}>
+          <motion.div whileHover={{ y: -5 }} onClick={() => setCurrentView('dashboard')} className="glass-panel flex flex-col items-center justify-center transition-all" style={{ padding: '32px', cursor: 'pointer', flex: 1, minWidth: '0', height: '280px' }}>
+            <div className="p-4 rounded-full transition-all flex items-center justify-center" style={{ background: 'rgba(34, 211, 238, 0.1)', color: 'var(--accent-cyan)', marginBottom: '24px', width: '64px', height: '64px' }}>
+              <Database size={32} strokeWidth={1.5} />
+            </div>
+            <span className="font-bold tracking-wide text-center uppercase text-sm" style={{ color: 'var(--text-main)' }}>Scrubber Pipeline</span>
+          </motion.div>
+
+          <motion.div whileHover={{ y: -5 }} className="glass-panel flex flex-col items-center justify-center transition-all" style={{ padding: '32px', cursor: 'not-allowed', opacity: 0.5, flex: 1, minWidth: '0', height: '280px' }}>
+            <div className="p-4 rounded-full flex items-center justify-center" style={{ background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-dim)', marginBottom: '24px', width: '64px', height: '64px' }}>
+              <BarChart3 size={32} strokeWidth={1.5} />
+            </div>
+            <span className="font-bold tracking-wide text-center uppercase text-sm" style={{ color: 'var(--text-dim)' }}>Analytics Engine</span>
+          </motion.div>
+
+          <motion.div whileHover={{ y: -5 }} className="glass-panel flex flex-col items-center justify-center transition-all" style={{ padding: '32px', cursor: 'not-allowed', opacity: 0.5, flex: 1, minWidth: '0', height: '280px' }}>
+            <div className="p-4 rounded-full flex items-center justify-center" style={{ background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-dim)', marginBottom: '24px', width: '64px', height: '64px' }}>
+              <Users size={32} strokeWidth={1.5} />
+            </div>
+            <span className="font-bold tracking-wide text-center uppercase text-sm" style={{ color: 'var(--text-dim)' }}>User Management</span>
+          </motion.div>
+
+          <motion.div whileHover={{ y: -5 }} className="glass-panel flex flex-col items-center justify-center transition-all" style={{ padding: '32px', cursor: 'not-allowed', opacity: 0.5, flex: 1, minWidth: '0', height: '280px' }}>
+            <div className="p-4 rounded-full flex items-center justify-center" style={{ background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-dim)', marginBottom: '24px', width: '64px', height: '64px' }}>
+              <Settings size={32} strokeWidth={1.5} />
+            </div>
+            <span className="font-bold tracking-wide text-center uppercase text-sm" style={{ color: 'var(--text-dim)' }}>System Config</span>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="dashboard-container" data-theme={theme}>
+
+      <header>
+        <div className="flex items-center gap-4 cursor-pointer group" onClick={() => setCurrentView('landing')}>
+          <h1 className="logo-text transition-all group-hover:opacity-80" style={{
+            background: theme === 'light'
+              ? 'linear-gradient(135deg, var(--text-main) 0%, var(--accent-cyan) 50%, var(--accent-emerald) 100%)'
+              : 'linear-gradient(135deg, #fff 0%, var(--accent-cyan) 50%, var(--accent-blue) 100%)',
+            backgroundClip: 'text',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            fontSize: '1.8rem',
+            filter: 'none'
+          }}>
+            OBD OUTSMART
+          </h1>
+          <div className="rounded-full border text-[9px] font-black uppercase tracking-[0.2em] hidden md:block" style={{ background: 'var(--bg-glass)', borderColor: 'var(--glass-border)', color: 'var(--accent-cyan)', padding: '4px 12px' }}>
+            Scrubber Pipeline
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* Status Indicator */}
+          <div className="flex items-center gap-2 px-4 h-11 rounded-xl bg-white-5 border border-white-10 shadow-lg transition-all hover:bg-white-10">
+            <div
+              className="w-2 h-2 rounded-full animate-pulse shadow-[0_0_12px_currentColor]"
+              style={{ backgroundColor: apiColor, color: apiColor }}
+            ></div>
+            <div className="flex flex-col items-start leading-none">
+              <span className="text-[8px] font-black uppercase tracking-[0.2em] opacity-40 mb-0.5" style={{ color: 'var(--text-main)' }}>Backend</span>
+              <span className="text-[10px] uppercase tracking-widest font-extrabold" style={{ color: apiColor }}>
+                {backendStatus}
+              </span>
+            </div>
+          </div>
+
+          {/* System Hub */}
+          <button
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            className="flex items-center gap-3 px-4 h-11 rounded-2xl glass-action group shadow-lg"
+          >
+            <div className="flex items-center justify-center w-10 h-10 rounded-lg transition-all duration-500 group-hover-rotate-90" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--accent-cyan)' }}>
+              <Menu size={18} />
+            </div>
+            <div className="flex flex-col items-start leading-tight pr-2 text-left">
+              <span className="text-[9px] font-black uppercase tracking-[0.1em] opacity-50" style={{ color: 'var(--text-main)' }}>Menu</span>
+            </div>
           </button>
         </div>
       </header>
 
+      <AnimatePresence>
+        {isMenuOpen && (
+          <>
+            {/* BACKDROP */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMenuOpen(false)}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(0, 0, 0, 0.4)',
+                backdropFilter: 'blur(8px)',
+                zIndex: 100
+              }}
+            />
+
+            {/* SIDE DRAWER */}
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              style={{
+                position: 'fixed',
+                top: 0,
+                right: 0,
+                height: '100vh',
+                width: '380px',
+                background: 'var(--bg-glass-heavy)',
+                backdropFilter: 'blur(40px)',
+                borderLeft: '1px solid var(--glass-border)',
+                boxShadow: '-10px 0 40px rgba(255, 255, 255, 0.5)',
+                zIndex: 101,
+                display: 'flex',
+                flexDirection: 'column',
+                padding: '40px 0'
+              }}
+            >
+              <div className="px-8 mb-12 flex justify-between items-center">
+                <h2 className="text-ghost" style={{ fontSize: '0.8rem', letterSpacing: '0.3em' }}>System Menu</h2>
+                <button
+                  onClick={() => setIsMenuOpen(false)}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer' }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="flex flex-col">
+                <motion.div
+                  whileHover={{ x: 8 }}
+                  className="flex items-center gap-4 transition-all group"
+                  style={{ padding: '24px 32px', cursor: 'pointer', borderLeft: '4px solid transparent' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.36)';
+                    e.currentTarget.style.borderLeftColor = 'var(--accent-cyan)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.borderLeftColor = 'transparent';
+                  }}
+                  onClick={() => {
+                    setCurrentView('landing');
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  <Layout size={22} className="transition-all" style={{ color: 'var(--accent-cyan)' }} />
+                  <div className="flex flex-col">
+                    <span className="font-bold tracking-wider uppercase text-sm" style={{ color: 'var(--text-main)' }}>Modules Hub</span>
+                    <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>Switch system modules</span>
+                  </div>
+                </motion.div>
+
+                <motion.div
+                  whileHover={{ x: 8 }}
+                  className="flex items-center gap-4 transition-all group"
+                  style={{ padding: '24px 32px', cursor: 'pointer', borderLeft: '4px solid transparent' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
+                    e.currentTarget.style.borderLeftColor = 'var(--accent-emerald)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.borderLeftColor = 'transparent';
+                  }}
+                  onClick={() => {
+                    fetchScrubHistory();
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  <History size={22} className="transition-all" style={{ color: 'var(--accent-emerald)' }} />
+                  <div className="flex flex-col">
+                    <span className="font-bold tracking-wider uppercase text-sm" style={{ color: 'var(--text-main)' }}>Scrub History</span>
+                    <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>View past execution logs</span>
+                  </div>
+                </motion.div>
+
+                {/* DESIGN STUDIO */}
+                <div className="mt-4 px-8 pt-8 border-t border-white-5">
+                  <span className="text-[10px] font-black uppercase tracking-[0.3em] block mb-6" style={{ color: 'var(--accent-cyan)' }}>Design Studio</span>
+                  <div className="grid grid-cols-2 gap-4 pb-8">
+                    {themes.map((t) => (
+                      <motion.button
+                        key={t}
+                        whileHover={{ y: -4, scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                          setTheme(t);
+                          localStorage.setItem('obd-theme', t);
+                          document.documentElement.setAttribute('data-theme', t);
+                        }}
+                        className={`group flex flex-col items-center justify-center p-4 rounded-3xl border transition-all duration-500 overflow-hidden relative ${theme === t
+                          ? 'border-cyan-400 bg-cyan-400/5 shadow-[0_0_30px_rgba(34,211,238,0.15)]'
+                          : 'border-white-5 bg-white-5 hover:border-white-20'
+                          }`}
+                      >
+                        {/* THEME SWATCH */}
+                        <div className="w-12 h-12 rounded-2xl mb-3 flex items-center justify-center relative overflow-hidden shadow-2xl border border-white-10 group-hover:rotate-6 transition-transform">
+                          <div className="absolute inset-0" style={{
+                            background: t === 'dark' ? 'linear-gradient(135deg, #020617 0%, #172554 100%)' :
+                              t === 'light' ? 'linear-gradient(135deg, #fff 0%, #dbeafe 100%)' :
+                                t === 'midnight' ? 'linear-gradient(135deg, #050510 0%, #312e81 100%)' :
+                                  t === 'cyberpunk' ? 'linear-gradient(135deg, #0a011a 0%, #701a75 100%)' :
+                                    t === 'forest' ? 'linear-gradient(135deg, #061006 0%, #064e3b 100%)' :
+                                      'linear-gradient(135deg, #1a1a61ff 0%, #4c1d95 100%)'
+                          }} />
+
+                          {/* Accent preview dots */}
+                          <div className="relative z-10 flex gap-1">
+                            <div className="w-1.5 h-1.5 rounded-full" style={{ background: t === 'cyberpunk' ? '#ff00ff' : 'var(--accent-cyan)' }} />
+                            <div className="w-1.5 h-1.5 rounded-full" style={{ background: t === 'forest' ? '#10b981' : 'var(--accent-blue)' }} />
+                          </div>
+
+                          {theme === t && (
+                            <motion.div
+                              layoutId="active-indicator"
+                              className="absolute inset-0 border-2 border-cyan-400 z-20 rounded-2xl"
+                            />
+                          )}
+                        </div>
+
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-[9px] font-black uppercase tracking-widest" style={{ color: 'var(--text-main)' }}>{t}</span>
+                          {theme === t && (
+                            <span className="text-[7px] font-bold text-cyan-400 uppercase tracking-tighter">Active</span>
+                          )}
+                        </div>
+                      </motion.button>
+                    ))}
+                  </div>
+                </div>
+
+                <motion.div
+                  whileHover={{ x: 8 }}
+                  className="flex items-center gap-4 transition-all group"
+                  style={{ padding: '24px 32px', cursor: 'pointer', borderLeft: '4px solid transparent', marginTop: 'auto' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(244, 63, 94, 0.05)';
+                    e.currentTarget.style.borderLeftColor = 'var(--accent-rose)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.borderLeftColor = 'transparent';
+                  }}
+                  onClick={() => {
+                    handleLogout();
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  <LogOut size={22} className="transition-all" style={{ color: 'var(--accent-rose)' }} />
+                  <div className="flex flex-col">
+                    <span className="font-bold tracking-wider uppercase text-sm" style={{ color: 'var(--text-main)' }}>Secure Logout</span>
+                    <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>Terminate current session</span>
+                  </div>
+                </motion.div>
+              </div>
+
+              <div className="mt-auto px-8 py-8 border-t border-white-5">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="relative">
+                    <div className="w-10 h-10 rounded-2xl bg-cyan-400/10 border border-cyan-400/20 flex items-center justify-center text-cyan-400 font-black text-sm">AD</div>
+                    <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-emerald-500 border-2 border-slate-900 animate-pulse" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-black text-white uppercase tracking-widest">Admin User</span>
+                    <span className="text-[10px] text-emerald-500/80 font-bold uppercase tracking-tighter">System Online</span>
+                  </div>
+                </div>
+                <div className="flex justify-between items-center opacity-40">
+                  <span className="text-[9px] font-bold uppercase tracking-[0.2em]">OBD OUTSMART v2.0</span>
+                  <span className="text-[9px] font-bold uppercase tracking-tighter">© 2026 PR</span>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       <motion.div
+        key="dashboard-flow"
         className="sequential-flow-container"
         initial="hidden"
         animate="visible"
         variants={{
-          visible: { transition: { staggerChildren: 0.1 } }
+          hidden: { opacity: 0 },
+          visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
         }}
       >
         {/* STEP 1: DATA INJECTION */}
         <motion.section
           className="glass-panel sequential-step"
+          style={{
+            padding: '50px',
+            boxShadow: '0 12px 40px rgba(0,0,0,0.03)',
+            border: '1px solid var(--glass-border)',
+            width: '100%',
+            minHeight: '280px',
+            display: 'flex',
+            flexDirection: 'column',
+            margin: '0 auto 40px auto'
+          }}
           variants={{
             hidden: { opacity: 0, y: 20 },
             visible: { opacity: 1, y: 0 }
@@ -309,7 +1007,7 @@ export default function Dashboard() {
             Step 1: Data Injection
             <span className="text-ghost ml-auto text-[10px]">Lead Base Upload</span>
           </h2>
-          <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <FileUploadZone onUploadSuccess={handleFileUpload} />
           </div>
         </motion.section>
@@ -317,6 +1015,16 @@ export default function Dashboard() {
         {/* STEP 2: DATABASE ANALYTICS */}
         <motion.section
           className="glass-panel sequential-step"
+          style={{
+            padding: '40px',
+            boxShadow: '0 12px 40px rgba(0,0,0,0.03)',
+            border: '1px solid var(--glass-border)',
+            width: '100%',
+            minHeight: '300px',
+            display: 'flex',
+            flexDirection: 'column',
+            margin: '0 auto 40px auto'
+          }}
           variants={{
             hidden: { opacity: 0, y: 20 },
             visible: { opacity: 1, y: 0 }
@@ -328,33 +1036,43 @@ export default function Dashboard() {
             Step 2: Database Analytics
             <span className="text-ghost ml-auto text-[10px]">Global Cross-Reference</span>
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="flex items-center justify-between p-6 bg-white-5 rounded-2xl border-white-5 glass-pill">
-              <div className="flex items-center gap-3">
-                <ShieldCheck className="text-emerald-400" size={18} />
-                <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Global DND List</span>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', justifyContent: 'center' }}>
+            {/* ROW 1: DND & SUB */}
+            <div style={{ display: 'flex', gap: '12px', width: '100%' }}>
+              <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderRadius: '12px', flex: 1, marginBottom: 0 }}>
+                <div style={{ padding: '8px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--accent-emerald)', display: 'flex' }}>
+                  <ShieldCheck size={18} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', color: 'var(--text-dim)', letterSpacing: '0.1em' }}>Global DND</span>
+                  <span style={{ fontSize: '1.25rem', fontWeight: '700', color: 'var(--accent-emerald)', lineHeight: 1 }}>
+                    {dbStats.dnd_count === null ? '...' : dbStats.dnd_count.toLocaleString()}
+                  </span>
+                </div>
               </div>
-              <span className="text-xl font-bold text-emerald-400">
-                {dbStats.dnd_count === null ? '...' : dbStats.dnd_count.toLocaleString()}
-              </span>
+              <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderRadius: '12px', flex: 1, marginBottom: 0 }}>
+                <div style={{ padding: '8px', borderRadius: '8px', background: 'rgba(34, 211, 238, 0.1)', color: 'var(--accent-cyan)', display: 'flex' }}>
+                  <Smartphone size={18} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', color: 'var(--text-dim)', letterSpacing: '0.1em' }}>Subscriptions</span>
+                  <span style={{ fontSize: '1.25rem', fontWeight: '700', color: 'var(--accent-cyan)', lineHeight: 1 }}>
+                    {dbStats.sub_count === null ? '...' : dbStats.sub_count.toLocaleString()}
+                  </span>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center justify-between p-6 bg-white-5 rounded-2xl border-white-5 glass-pill">
-              <div className="flex items-center gap-3">
-                <Smartphone className="text-cyan-400" size={18} />
-                <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Total Subscriptions</span>
+            {/* ROW 2: UNSUB */}
+            <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderRadius: '12px', width: '100%', marginBottom: 0 }}>
+              <div style={{ padding: '8px', borderRadius: '8px', background: 'rgba(244, 63, 92, 0.1)', color: 'var(--accent-rose)', display: 'flex' }}>
+                <XCircle size={18} />
               </div>
-              <span className="text-xl font-bold text-cyan-400">
-                {dbStats.sub_count === null ? '...' : dbStats.sub_count.toLocaleString()}
-              </span>
-            </div>
-            <div className="flex items-center justify-between p-6 bg-white-5 rounded-2xl border-white-5 glass-pill">
-              <div className="flex items-center gap-3">
-                <XCircle className="text-rose-400" size={18} />
-                <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Unsubscribe Archive</span>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '9px', fontWeight: '800', textTransform: 'uppercase', color: 'var(--text-dim)', letterSpacing: '0.1em' }}>Unsubscribe Archive</span>
+                <span style={{ fontSize: '1.25rem', fontWeight: '700', color: 'var(--accent-rose)', lineHeight: 1 }}>
+                  {dbStats.unsub_count === null ? '...' : dbStats.unsub_count.toLocaleString()}
+                </span>
               </div>
-              <span className="text-xl font-bold text-rose-400">
-                {dbStats.unsub_count === null ? '...' : dbStats.unsub_count.toLocaleString()}
-              </span>
             </div>
           </div>
         </motion.section>
@@ -362,6 +1080,16 @@ export default function Dashboard() {
         {/* STEP 3: VERIFICATION INTELLIGENCE */}
         <motion.section
           className="glass-panel sequential-step"
+          style={{
+            padding: '40px',
+            boxShadow: '0 12px 40px rgba(0,0,0,0.03)',
+            border: '1px solid var(--glass-border)',
+            width: '100%',
+            minHeight: '280px',
+            display: 'flex',
+            flexDirection: 'column',
+            margin: '0 auto 40px auto'
+          }}
           variants={{
             hidden: { opacity: 0, y: 20 },
             visible: { opacity: 1, y: 0 }
@@ -373,23 +1101,23 @@ export default function Dashboard() {
             Step 3: Verification Intelligence
             <span className="text-ghost ml-auto text-[10px]">Scrubbing Outcome Preview</span>
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-            <div className="stat-card" style={{ display: 'flex', alignItems: 'center', padding: '32px' }}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div className="stat-card" style={{ display: 'flex', alignItems: 'center', padding: '16px 24px' }}>
               <div className="flex flex-col">
-                <div className="stat-label" style={{ marginBottom: 4, color: 'var(--text-muted)' }}>Initial Lead Load</div>
-                <div className="text-[10px] text-slate-400 font-bold flex items-center gap-1"><Info size={10} /> Total input volume</div>
+                <div className="stat-label" style={{ marginBottom: 2, color: 'var(--text-muted)', fontSize: '0.7rem' }}>Initial Lead Load</div>
+                <div className="text-[9px] text-slate-500 font-bold flex items-center gap-1 uppercase tracking-tight"><Info size={8} /> Total volume</div>
               </div>
-              <div className="stat-value" style={{ color: 'var(--accent-blue)', fontSize: '2.5rem', marginLeft: 'auto' }}>
-                {loading ? <span className="text-sm animate-pulse">Syncing...</span> : counts.total.toLocaleString()}
+              <div className="stat-value" style={{ color: 'var(--accent-blue)', fontSize: '1.8rem', marginLeft: 'auto' }}>
+                {loading ? <span className="text-xs animate-pulse">Syncing...</span> : counts.total.toLocaleString()}
               </div>
             </div>
-            <div className="stat-card" style={{ display: 'flex', alignItems: 'center', padding: '32px', borderLeft: '6px solid var(--accent-emerald)' }}>
+            <div className="stat-card" style={{ display: 'flex', alignItems: 'center', padding: '16px 24px', borderLeft: '4px solid var(--accent-emerald)' }}>
               <div className="flex flex-col">
-                <div className="stat-label" style={{ marginBottom: 4, color: 'var(--text-muted)' }}>Verified Clean Base</div>
-                <div className="text-[10px] text-emerald-400/60 font-bold flex items-center gap-1"><CheckCircle2 size={10} /> Campaign ready</div>
+                <div className="stat-label" style={{ marginBottom: 2, color: 'var(--text-muted)', fontSize: '0.7rem' }}>Verified Clean Base</div>
+                <div className="text-[9px] text-emerald-400/60 font-bold flex items-center gap-1 uppercase tracking-tight"><CheckCircle2 size={8} /> Ready</div>
               </div>
-              <div className="stat-value" style={{ color: 'var(--accent-emerald)', fontSize: '2.5rem', marginLeft: 'auto' }}>
-                {loading ? <span className="text-sm animate-pulse">Wait...</span> : counts.final.toLocaleString()}
+              <div className="stat-value" style={{ color: 'var(--accent-emerald)', fontSize: '1.8rem', marginLeft: 'auto' }}>
+                {loading ? <span className="text-xs animate-pulse">Wait...</span> : counts.final.toLocaleString()}
               </div>
             </div>
           </div>
@@ -437,6 +1165,16 @@ export default function Dashboard() {
         {/* STEP 4: SCRUBBING CONFIGURATION */}
         <motion.section
           className="glass-panel sequential-step"
+          style={{
+            padding: '40px',
+            boxShadow: '0 12px 40px rgba(0,0,0,0.03)',
+            border: '1px solid var(--glass-border)',
+            width: '100%',
+            minHeight: '300px',
+            display: 'flex',
+            flexDirection: 'column',
+            margin: '0 auto 40px auto'
+          }}
           variants={{
             hidden: { opacity: 0, y: 20 },
             visible: { opacity: 1, y: 0 }
@@ -446,55 +1184,66 @@ export default function Dashboard() {
           <h2 className="panel-title">
             <span className="accent-line" style={{ background: 'var(--accent-blue)' }}></span>
             Step 4: Scrubber Configuration
-            <span className="text-ghost ml-auto text-[10px]">Filter Logic & Execution</span>
+            <span className="text-ghost ml-auto text-[11px]">Filter Logic & Execution</span>
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:px-8">
             {Object.keys(scrubOptions).map((opt) => (
-              <div key={opt} className="glass-card-interactive flex items-center gap-3 py-3"
+              <div key={opt} className="glass-card-interactive flex items-center gap-4 p-5 hover:bg-white-5 transition-all shadow-md"
                 onClick={() => setScrubOptions(prev => ({ ...prev, [opt]: !prev[opt] }))}
               >
-                <div className={`flex items-center justify-center rounded-lg border-2 border-cyan-400 transition-all ${scrubOptions[opt] ? 'bg-cyan-400 border-cyan-400' : 'bg-transparent border-slate-700'}`} style={{ width: '18px', height: '18px' }}>
-                  {scrubOptions[opt] && <CheckCircle2 size={12} strokeWidth={3} color="#020617" />}
+                <div className={`flex items-center justify-center rounded-lg border-2 ${scrubOptions[opt] ? 'bg-cyan-400 border-cyan-400' : 'bg-slate-800 border-slate-600'} transition-all`} style={{ width: '22px', height: '22px' }}>
+                  {scrubOptions[opt] && <CheckCircle2 size={14} strokeWidth={3} color="#0be881" />}
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-widest">
-                  <span style={{ color: scrubOptions[opt] ? 'var(--accent-cyan)' : 'var(--text-dim)' }}>{opt}</span> FILTER
-                </span>
+                <div className="flex flex-col">
+                  <span className="text-sm font-bold uppercase tracking-widest text-slate-200">
+                    <span style={{ color: scrubOptions[opt] ? 'var(--accent-cyan)' : 'inherit' }}>{opt}</span> FILTER
+                  </span>
+                  <span className="text-xs text-slate-510 tracking-wider">
+                    {opt === 'dnd' ? 'Remove numbers registered in National DND Registry' :
+                      opt === 'sub' ? 'Remove users already subscribed to this service' :
+                        opt === 'unsub' ? 'Remove users who explicitly opted out previously' :
+                          'Filter targets by matching carrier/operator prefixes'}
+                  </span>
+                </div>
               </div>
             ))}
           </div>
-          <div className="flex flex-wrap md:flex-nowrap gap-4 mt-10">
+          <div className="flex flex-row flex-wrap gap-3 mt-6">
             <button
-              className="btn-secondary"
-              onClick={async () => {
-                try {
-                  const res = await fetch(`${API_BASE}/verify-email`);
-                  const data = await res.json();
-                  if (res.ok) alert(`SUCCESS: ${data.message}`);
-                  else alert(`ERROR: ${data.detail || 'Email verification failed'}`);
-                } catch (err) {
-                  alert(`Network Error: ${err.message}. Is backend live at ${API_BASE}?`);
-                }
-              }}
+              className="btn-primary glow-hover"
+              style={{ padding: '9px 16px', fontSize: '0.8rem', flex: 2, minWidth: '220px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer' }}
+              onClick={handleRunScrub}
+              disabled={loading}
             >
-              <Zap size={14} className="text-cyan-400" />
-              VERIFY EMAIL
+              <Zap size={14} fill="currentColor" />
+              {loading ? 'SCRUBBING...SYNCING...' : 'EXECUTE SCRUBBING PIPELINE'}
             </button>
-            <button className="btn-primary" style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }} onClick={handleRunScrub} disabled={loading}>
-              <Zap size={18} fill="currentColor" />
-              {loading ? 'Sychronizing Datasets...' : 'EXECUTE SCRUBBING PIPELINE'}
-            </button>
-            <button className="btn-secondary" onClick={downloadCleanedBase} disabled={cleanedMsisdns.length === 0}>
-              <Download size={16} />
+            <button
+              className="btn-secondary glow-hover"
+              style={{ padding: '10px 16px', fontSize: '0.7rem', flex: 1, minWidth: '120px', cursor: 'pointer' }}
+              onClick={downloadCleanedBase}
+              disabled={cleanedMsisdns.length === 0}
+            >
+              <Download size={14} />
               EXPORT CSV
             </button>
             <button
-              className="btn-secondary"
-              style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: cleanedMsisdns.length > 0 ? 'var(--accent-cyan)' : 'inherit', borderColor: cleanedMsisdns.length > 0 ? 'var(--accent-cyan)' : 'var(--glass-border)' }}
+              className="btn-secondary glow-hover"
+              style={{ padding: '10px 16px', fontSize: '0.7rem', flex: 1, minWidth: '140px', cursor: 'pointer' }}
+              onClick={handleLogScrubEntry}
+              disabled={cleanedMsisdns.length === 0}
+            >
+              <Database size={14} />
+              LOG ENTRY
+            </button>
+            <button
+              className="btn-secondary glow-hover"
+              style={{ padding: '10px 16px', fontSize: '0.7rem', flex: 1, minWidth: '160px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', color: cleanedMsisdns.length > 0 ? 'var(--accent-cyan)' : 'inherit', borderColor: cleanedMsisdns.length > 0 ? 'var(--accent-cyan)' : 'var(--glass-border)', cursor: 'pointer' }}
               onClick={() => setIsScheduleModalOpen(true)}
               disabled={cleanedMsisdns.length === 0}
             >
-              <Calendar size={16} />
-              SCHEDULE & LAUNCH
+              <Calendar size={14} />
+              SCHEDULE
             </button>
           </div>
         </motion.section>
@@ -505,6 +1254,16 @@ export default function Dashboard() {
             cleanedMsisdns.length > 0 && (
               <motion.section
                 className="glass-panel sequential-step"
+                style={{
+                  padding: '10px',
+                  boxShadow: '0 12px 40px rgba(0,0,0,0.03)',
+                  border: '1px solid var(--glass-border)',
+                  width: '100%',
+                  minHeight: '300px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  margin: '0 auto 40px auto'
+                }}
                 initial={{ opacity: 0, height: 0, marginTop: -40 }}
                 animate={{ opacity: 1, height: 'auto', marginTop: 0 }}
                 exit={{ opacity: 0, height: 0 }}
@@ -540,13 +1299,22 @@ export default function Dashboard() {
         </AnimatePresence >
 
         {/* STEP 6: AI CAMPAIGN STUDIO */}
-        < motion.section
+        <motion.section
           className="glass-panel sequential-step"
+          style={{
+            padding: '40px',
+            boxShadow: '0 12px 40px rgba(0,0,0,0.03)',
+            border: '1px solid var(--glass-border)',
+            width: '100%',
+            minHeight: '200px',
+            display: 'flex',
+            flexDirection: 'column',
+            margin: '0 auto 40px auto'
+          }}
           variants={{
             hidden: { opacity: 0, y: 20 },
             visible: { opacity: 1, y: 0 }
-          }
-          }
+          }}
         >
           <div className="step-badge"><Wand2 size={20} /></div>
           <h2 className="panel-title">
@@ -603,43 +1371,152 @@ export default function Dashboard() {
         </motion.section >
       </motion.div >
 
-      {/* MODAL OVERLAY */}
+      {/* HISTORY MODAL OVERLAY */}
       {
-        isScheduleModalOpen && (
-          <div className="modal-overlay" onClick={() => setIsScheduleModalOpen(false)}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        isHistoryModalOpen && (
+          <div className="modal-overlay" onClick={() => setIsHistoryModalOpen(false)}>
+            <div className="modal-content" style={{ maxWidth: '800px', width: '90%' }} onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <h2 className="modal-title">Schedule Campaign</h2>
-                <p className="text-xs text-slate-400 mt-2">Configure execution parameters for your finalized base</p>
+                <h2 className="modal-title">Scrub History Log</h2>
+                <p className="text-xs text-slate-400 mt-2">Past verified results execution logs</p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4">
-                <div className="form-group">
-                  <label className="form-label">OBD Project Name</label>
-                  <input type="text" className="form-input" placeholder="e.g. Summer_2024" value={scheduleData.obd_name} onChange={(e) => setScheduleData({ ...scheduleData, obd_name: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Voice/Flow Logic</label>
-                  <select className="form-input form-select" value={scheduleData.flow_name} onChange={(e) => setScheduleData({ ...scheduleData, flow_name: e.target.value })}>
-                    <option value="">Select flow...</option>
-                    <option value="Promo Flow 1">Standard Promo</option>
-                    <option value="Holiday Special">Holiday Special</option>
-                    {mermaidFlow && <option value="AI Generated Flow">AI Generated Flow</option>}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">MSC Connection IP</label>
-                  <input type="text" className="form-input" placeholder="0.0.0.0" value={scheduleData.msc_ip} onChange={(e) => setScheduleData({ ...scheduleData, msc_ip: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">CLI Masking</label>
-                  <input type="text" className="form-input" placeholder="123456" value={scheduleData.cli} onChange={(e) => setScheduleData({ ...scheduleData, cli: e.target.value })} />
-                </div>
+              <div className="p-4 overflow-x-auto" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+                {historyLoading ? (
+                  <div className="flex justify-center p-10"><Activity className="animate-pulse text-cyan-400" /></div>
+                ) : historyData.length === 0 ? (
+                  <div className="text-center p-10 text-slate-500 text-sm">No history found.</div>
+                ) : (
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-700/50">
+                        <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest min-w-[150px]">Date</th>
+                        <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">Input</th>
+                        <th className="p-3 text-xs font-bold text-emerald-400 uppercase tracking-widest text-right">Final</th>
+                        <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">Filtered</th>
+                        <th className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest pl-6">Results Table</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historyData.map((row) => {
+                        const date = new Date(row.logged_at).toLocaleString();
+                        const filtered = row.dnd_removed + row.sub_removed + row.unsub_removed + row.operator_removed;
+                        return (
+                          <tr key={row.id} className="border-b border-slate-800/50 hover:bg-white-5 transition-colors">
+                            <td className="p-3 text-xs text-slate-300">{date}</td>
+                            <td className="p-3 text-xs text-slate-300 text-right">{row.total_input.toLocaleString()}</td>
+                            <td className="p-3 text-xs font-bold text-emerald-400 text-right">{row.final_count.toLocaleString()}</td>
+                            <td className="p-3 text-xs text-rose-400 text-right">-{filtered.toLocaleString()}</td>
+                            <td className="p-3 text-xs text-cyan-400 font-mono pl-6" style={{ fontSize: '0.65rem' }}>{row.results_table || 'N/A'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
               </div>
 
               <div className="modal-footer">
-                <button className="btn-secondary" onClick={() => setIsScheduleModalOpen(false)}>Cancel</button>
-                <button className="btn-launch"
+                <button className="btn-secondary" onClick={() => setIsHistoryModalOpen(false)}>Close</button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* MODAL OVERLAY */}
+      {
+        isScheduleModalOpen && (
+          <div className="modal-overlay overflow-y-auto py-10" onClick={() => setIsScheduleModalOpen(false)}>
+            <div className="modal-content !max-w-[700px]" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header border-b border-white-5 pb-6 mb-8">
+                <div className="flex items-center gap-4 mb-2">
+                  <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                    <Calendar size={24} />
+                  </div>
+                  <div>
+                    <h2 className="modal-title !text-2xl">Configuration Studio</h2>
+                    <p className="text-xs text-slate-500 tracking-wider uppercase font-bold">Campaign Scheduling & MSC Routing</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 px-2">
+                <div className="form-group">
+                  <label className="label flex items-center gap-2 mb-3">
+                    <Layout size={14} className="text-cyan-400" />
+                    OBD Project Identifier
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field !py-4 rounded-2xl bg-white-5 border-white-10 focus:border-cyan-400 transition-all"
+                    placeholder="e.g. Summer_Campaign_V1"
+                    value={scheduleData.obd_name}
+                    onChange={(e) => setScheduleData({ ...scheduleData, obd_name: e.target.value })}
+                  />
+                  <p className="text-[9px] text-slate-600 mt-2 px-1 uppercase tracking-tighter">Unique namespace for reporting</p>
+                </div>
+
+                <div className="form-group">
+                  <label className="label flex items-center gap-2 mb-3">
+                    <Zap size={14} className="text-amber-400" />
+                    Voice/Flow Logic selection
+                  </label>
+                  <div className="relative">
+                    <select
+                      className="input-field !py-4 rounded-2xl bg-white-5 border-white-10 focus:border-amber-400 transition-all appearance-none pr-10"
+                      value={scheduleData.flow_name}
+                      onChange={(e) => setScheduleData({ ...scheduleData, flow_name: e.target.value })}
+                    >
+                      <option value="" disabled>Select execution logic...</option>
+                      <option value="Promo Flow 1">Standard Promotion Engine</option>
+                      <option value="Holiday Special">Holiday Multi-tier Logic</option>
+                      {mermaidFlow && <option value="AI Generated Flow">AI Generated Scrubber Flow</option>}
+                    </select>
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500 line-height-1">
+                      <ChevronRight size={16} className="rotate-90" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="label flex items-center gap-2 mb-3">
+                    <Activity size={14} className="text-emerald-400" />
+                    MSC Connection IP Path
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field !py-4 rounded-2xl bg-white-5 border-white-10 focus:border-emerald-400 transition-all font-mono"
+                    placeholder="10.200.XXX.XXX"
+                    value={scheduleData.msc_ip}
+                    onChange={(e) => setScheduleData({ ...scheduleData, msc_ip: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="label flex items-center gap-2 mb-3">
+                    <Info size={14} className="text-purple-400" />
+                    CLI Masking / Caller ID
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field !py-4 rounded-2xl bg-white-5 border-white-10 focus:border-purple-400 transition-all"
+                    placeholder="e.g. 556677"
+                    value={scheduleData.cli}
+                    onChange={(e) => setScheduleData({ ...scheduleData, cli: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-4 mt-12 pt-8 border-t border-white-5">
+                <button
+                  className="btn-secondary flex-1 py-4 font-bold tracking-widest text-xs uppercase"
+                  onClick={() => setIsScheduleModalOpen(false)}
+                >
+                  Discard Configuration
+                </button>
+                <button
+                  className="btn-primary !bg-emerald-500 hover:!bg-emerald-400 shadow-emerald-500/20 flex-[2] py-4 rounded-2xl font-bold tracking-widest text-xs uppercase flex items-center justify-center gap-3 transition-all active:scale-95"
                   onClick={async () => {
                     try {
                       // 1. Save Scheduling Details FIRST
@@ -656,7 +1533,7 @@ export default function Dashboard() {
                       }
 
                       // 2. Alert Success for Entry creation
-                      alert("Entry create successfully");
+                      alert("Entry created successfully");
 
                       // 3. Trigger Launch
                       const launchRes = await fetch(`${API_BASE}/launch-campaign`, {
@@ -681,11 +1558,12 @@ export default function Dashboard() {
                     }
                   }}
                 >
-                  Confirm & Launch Campaign
-                </button>
-              </div>
-            </div>
-          </div>
+                  <Zap size={16} fill="white" />
+                  Initialize & Launch Campaign
+                </button >
+              </div >
+            </div >
+          </div >
         )
       }
     </div >

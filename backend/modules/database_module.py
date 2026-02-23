@@ -123,6 +123,14 @@ class DatabaseModule:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS admin_users (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(50) UNIQUE NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
             "CREATE INDEX IF NOT EXISTS idx_dnd_msisdn ON dnd_list(msisdn);",
             "CREATE INDEX IF NOT EXISTS idx_subs_msisdn ON subscriptions(msisdn);",
             "CREATE INDEX IF NOT EXISTS idx_unsubs_msisdn ON unsubscriptions(msisdn);",
@@ -133,11 +141,127 @@ class DatabaseModule:
                 for query in queries:
                     connection.execute(text(query))
                 connection.commit()
+                
+            # Create a default user if empty
+            with self.engine.connect() as connection:
+                count = connection.execute(text("SELECT COUNT(*) FROM admin_users")).scalar()
+                if count == 0:
+                    self.create_admin_user("admin", "admin123")
         except Exception as e:
             print(f"Table Initialization Error: {e}")
 
+    def create_admin_user(self, username, password):
+        import bcrypt
+        pwd_bytes = password.encode('utf-8')
+        salt = bcrypt.gensalt()
+        pwd_hash = bcrypt.hashpw(pwd_bytes, salt).decode('utf-8')
+        try:
+            with self.engine.connect() as conn:
+                conn.execute(
+                    text("INSERT INTO admin_users (username, password_hash) VALUES (:u, :p) ON CONFLICT (username) DO NOTHING"),
+                    {"u": username, "p": pwd_hash}
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            print("Create user error:", e)
+            return False
+
+    def verify_admin_user(self, username, password):
+        import bcrypt
+        try:
+            with self.engine.connect() as conn:
+                res = conn.execute(
+                    text("SELECT password_hash FROM admin_users WHERE username = :u"),
+                    {"u": username}
+                ).fetchone()
+                if res:
+                    pwd_hash = res[0].encode('utf-8')
+                    pwd_bytes = password.encode('utf-8')
+                    if bcrypt.checkpw(pwd_bytes, pwd_hash):
+                        return True
+                return False
+        except Exception as e:
+            print("Verify user error:", e)
+            return False
+
+
+    def log_scrub_history(self, stats: dict):
+        """Creates an entry in a new table specific for scrub history log."""
+        msisdn_list = stats.pop("msisdn_list", [])
+        results_table = "NONE"
+        if msisdn_list:
+            success, table_name = self.save_verified_scrub_results(msisdn_list)
+            if success:
+                results_table = table_name
+
+        stats["results_table"] = results_table
+
+        create_query = text("""
+            CREATE TABLE IF NOT EXISTS scrub_history_log (
+                id SERIAL PRIMARY KEY,
+                total_input INT,
+                final_count INT,
+                dnd_removed INT,
+                sub_removed INT,
+                unsub_removed INT,
+                operator_removed INT,
+                results_table VARCHAR(255),
+                logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # 1. Create the table if it's new
+        try:
+            with self.engine.connect() as conn1:
+                conn1.execute(create_query)
+                conn1.commit()
+        except Exception:
+            pass
+
+        # Make sure the results_table column exists if table is old
+        try:
+            with self.engine.connect() as conn2:
+                conn2.execute(text("ALTER TABLE scrub_history_log ADD COLUMN results_table VARCHAR(255)"))
+                conn2.commit()
+        except Exception:
+            pass
+
+        # 2. Insert the entry
+        insert_query = text("""
+            INSERT INTO scrub_history_log 
+            (total_input, final_count, dnd_removed, sub_removed, unsub_removed, operator_removed, results_table)
+            VALUES 
+            (:total_input, :final_count, :dnd_removed, :sub_removed, :unsub_removed, :operator_removed, :results_table)
+        """)
+        try:
+            with self.engine.connect() as conn3:
+                conn3.execute(insert_query, stats)
+                conn3.commit()
+                return True, f"Scrub entry successfully logged. Results saved in table: {results_table}"
+        except Exception as e:
+            err_msg = f"Failed to log scrub entry: {str(e)}"
+            print(f"ERROR: {err_msg}")
+            return False, err_msg
+
+    def get_scrub_history(self):
+        """Fetches the last 50 scrub history entries."""
+        try:
+            # Add results_table safely just in case
+            with self.engine.connect() as connection:
+                try:
+                    connection.execute(text("ALTER TABLE scrub_history_log ADD COLUMN results_table VARCHAR(255)"))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        query = "SELECT * FROM scrub_history_log ORDER BY logged_at DESC LIMIT 50"
+        return self.execute_query(query)
+
     def save_scheduling_details(self, details: dict):
         """Inserts scheduling details into the database."""
+
         query = text("""
             INSERT INTO obdscheduling_details (obd_name, flow_name, msc_ip, cli)
             VALUES (:obd_name, :flow_name, :msc_ip, :cli)
@@ -212,29 +336,29 @@ class DatabaseModule:
         table_name = f"scrub_results_{timestamp}"
         
         try:
-            with self.engine.connect() as connection:
+            with self.engine.raw_connection() as raw_conn:
+                cursor = raw_conn.cursor()
                 # 1. Create the specific scrub results table
-                create_query = text(f"""
+                cursor.execute(f"""
                     CREATE TABLE IF NOT EXISTS {table_name} (
                         id SERIAL PRIMARY KEY,
                         msisdn VARCHAR(20) NOT NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
-                connection.execute(create_query)
                 
-                # 2. Insert the data in chunks
-                chunk_size = 5000
-                for start_idx in range(0, len(msisdns), chunk_size):
-                    chunk = msisdns[start_idx:start_idx + chunk_size]
-                    rows = [{"msisdn": m} for m in chunk]
-                    insert_query = text(f"""
-                        INSERT INTO {table_name} (msisdn)
-                        VALUES (:msisdn)
-                    """)
-                    connection.execute(insert_query, rows)
+                # 2. Incredible fast bulk insertion logic for cloud DBs
+                from psycopg2.extras import execute_values
+                data = [(str(m),) for m in msisdns]
+                execute_values(
+                    cursor,
+                    f"INSERT INTO {table_name} (msisdn) VALUES %s",
+                    data,
+                    page_size=10000
+                )
                 
-                connection.commit()
+                raw_conn.commit()
+                cursor.close()
                 return True, table_name
         except Exception as e:
             err_msg = f"Failed to auto-save scrub results: {str(e)}"
