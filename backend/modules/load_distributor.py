@@ -10,10 +10,21 @@ class LoadDistributor:
     Perfect for large-scale MSISDN scrubbing.
     """
     def __init__(self):
-        self.num_cores = multiprocessing.cpu_count()
-        # Use a ProcessPoolExecutor for CPU-bound tasks (parrallelism)
-        self.executor = concurrent.futures.ProcessPoolExecutor(max_workers=self.num_cores)
-        print(f"DEBUG: LoadDistributor initialized with {self.num_cores} workers.")
+        # Default to all available cores, but guard against environments
+        # where process pools or semaphore limits are restricted.
+        try:
+            self.num_cores = multiprocessing.cpu_count()
+        except Exception:
+            self.num_cores = 1
+
+        try:
+            # Use a ProcessPoolExecutor for CPU-bound tasks where allowed
+            self.executor = concurrent.futures.ProcessPoolExecutor(max_workers=self.num_cores)
+            print(f"DEBUG: LoadDistributor initialized with {self.num_cores} process workers.")
+        except Exception as e:
+            # Fallback to a ThreadPoolExecutor in constrained environments
+            print(f"WARNING: ProcessPoolExecutor unavailable ({e}). Falling back to ThreadPoolExecutor.")
+            self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.num_cores)
 
     async def distribute_task(self, func: Callable, data_list: List[Any], chunk_size: int = 10000) -> List[Any]:
         """

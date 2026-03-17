@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks, Depends, Header
 from sqlalchemy import text
 from pydantic import BaseModel
 from typing import List, Optional, Dict
@@ -13,22 +13,82 @@ from modules.voip_module import voip_module
 from modules.logging_system import logger
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
+import jwt
 import os
 import threading
 import asyncio
-
 from contextlib import asynccontextmanager
+try:
+    from pyngrok import ngrok
+except ImportError:
+    ngrok = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup logic here if needed
+    # Startup logic
+    public_url = None
+    if os.getenv("USE_NGROK") == "true" and ngrok:
+        authtoken = os.getenv("NGROK_AUTHTOKEN")
+        if authtoken:
+            ngrok.set_auth_token(authtoken)
+        try:
+            tunnel = ngrok.connect(8000)
+            public_url = tunnel.public_url
+            app.state.public_url = public_url
+            print(f"DEBUG: NGROK Tunnel Active: {public_url}")
+        except Exception as e:
+            print(f"WARNING: NGROK failed to start: {e}")
+    else:
+        app.state.public_url = None
+
     yield
     # Shutdown logic
+    if ngrok:
+        ngrok.kill()
+        print("DEBUG: NGROK Tunnel stopped.")
+    
     from modules.load_distributor import load_distributor
     load_distributor.shutdown()
     print("DEBUG: Application shutdown. LoadDistributor stopped.")
 
 app = FastAPI(title="Outsmart OBD Agent API", lifespan=lifespan)
+
+# Auth / JWT configuration
+JWT_SECRET = os.getenv("JWT_SECRET", "dev_obd_secret_change_me")
+JWT_ALGORITHM = "HS256"
+JWT_EXP_SECONDS = int(os.getenv("JWT_EXP_SECONDS", "86400"))
+
+
+def create_token(username: str) -> str:
+    import datetime as _dt
+    payload = {
+        "sub": username,
+        "exp": _dt.datetime.utcnow() + _dt.timedelta(seconds=JWT_EXP_SECONDS),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def get_current_username(authorization: str = Header(None)):
+    """
+    Minimal auth helper.
+    Frontend should send token via either:
+    - Authorization header: 'Bearer <token>' (preferred in future)
+    - Or as 'authorization' form field for existing forms.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
+
+    token = authorization.split(" ", 1)[1]
+
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        username = payload.get("sub")
+        if not username:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+        return username
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
 
 # Enable CORS
 app.add_middleware(
@@ -39,6 +99,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/public-url")
+async def get_public_url():
+    return {"public_url": getattr(app.state, 'public_url', None)}
+
 # Initialize Modules
 email_module = EmailModule()
 scrubbing_engine = ScrubbingEngine()
@@ -46,6 +110,20 @@ alerting_system = AlertingSystem()
 upload_handler = UploadHandler()
 prompt_agent = OBDPromptAgent()
 db = DatabaseModule()
+
+@app.get("/ai-status")
+async def get_ai_status():
+    """Returns the health status of the AI Engine."""
+    if prompt_agent.model:
+        return {
+            "status": "Online",
+            "model": prompt_agent.model,
+            "provider": "Google Gemini"
+        }
+    return {
+        "status": "Offline",
+        "detail": "No LLM API Key or SDK configured"
+    }
 
 @app.get("/")
 async def root():
@@ -77,6 +155,7 @@ class ProcessRequest(BaseModel):
     operator: Optional[str] = None
     email_context: Optional[str] = None
     options: Optional[Dict[str, bool]] = None
+    username: Optional[str] = None
 
 class LogScrubRequest(BaseModel):
     total_input: int
@@ -114,9 +193,13 @@ async def fetch_request():
 @app.post("/login")
 async def login(request: LoginRequest):
     if db.verify_admin_user(request.username, request.password):
-        # A simple token for frontend session management
-        return {"status": "success", "token": "obd_auth_token_secret_123"}
+        token = create_token(request.username)
+        return {"status": "success", "token": token, "username": request.username}
     raise HTTPException(status_code=401, detail="Invalid username or password")
+
+@app.get("/auth/me")
+async def auth_me(username: str = Depends(get_current_username)):
+    return {"username": username, "status": "authenticated"}
 
 @app.post("/create-user")
 async def create_user(request: LoginRequest):
@@ -125,28 +208,59 @@ async def create_user(request: LoginRequest):
     raise HTTPException(status_code=500, detail="Failed to create user or user already exists")
 
 @app.post("/scrub")
-async def scrub_base(request: ProcessRequest, background_tasks: BackgroundTasks):
-    """Performs scrubbing on the provided MSISDN list with specific options."""
+async def scrub_base(request: ProcessRequest, current_username: str = Depends(get_current_username)):
+    """
+    Creates a scrub job for the provided MSISDN list with specific options.
+    Heavy scrubbing is handled asynchronously by a worker.
+    """
     try:
-        final_base, report = await scrubbing_engine.perform_full_scrub(
-            request.msisdn_list, 
-            request.operator, 
-            request.options
-        )
-        
-        # Consolidate background tasks for better logging/monitoring
-        if final_base:
-            background_tasks.add_task(post_scrub_processing, final_base, report)
+        msisdns = request.msisdn_list or []
+        if not msisdns:
+            raise HTTPException(status_code=400, detail="Empty MSISDN list")
 
-        logger.log("backend", "success", f"Scrub complete. Final count: {len(final_base)}. Post-processing queued.", "scrub")
+        # Determine logical username from auth token
+        username = current_username
+
+        # 1. Create job metadata
+        job_id = db.create_scrub_job(
+            username=username,
+            total_input=len(msisdns),
+            operator=request.operator,
+            options=request.options or {},
+        )
+        if not job_id:
+            raise HTTPException(status_code=500, detail="Failed to create scrub job")
+
+        # 2. Persist raw inputs for chunked processing
+        if not db.add_scrub_job_inputs(job_id, msisdns):
+            raise HTTPException(status_code=500, detail="Failed to persist job inputs")
+
+        # 3. Enqueue for background processing (Redis or in-process worker will pick it up)
+        try:
+            from modules.cache_engine import cache_engine
+            queue_key = "scrub_jobs_queue"
+            existing = cache_engine.get(queue_key) or []
+            existing.append(job_id)
+            cache_engine.set(queue_key, existing, expire=None)
+        except Exception as qe:
+            print(f"Queue Enqueue Warning: {qe}")
+
+        logger.log(
+            "backend",
+            "info",
+            f"Scrub job {job_id} created for user {username} with {len(msisdns)} records",
+            "scrub",
+        )
+
         return {
-            "final_base_count": len(final_base), 
-            "final_base": final_base, 
-            "report": report,
-            "tasks_status": "QUEUED"
+            "job_id": job_id,
+            "status": "QUEUED",
+            "total_input": len(msisdns),
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.log("backend", "error", f"Scrub error: {e}", "scrub")
+        logger.log("backend", "error", f"Scrub job creation error: {e}", "scrub")
         raise HTTPException(status_code=500, detail=str(e))
 
 def post_scrub_processing(final_base, report):
@@ -204,6 +318,36 @@ class VOIPRequest(BaseModel):
     msisdn: str
     shortcode: str
     script: Optional[str] = None
+
+
+@app.get("/scrub-job/{job_id}")
+async def get_scrub_job(job_id: int, current_username: str = Depends(get_current_username)):
+    """Returns metadata for a single scrub job."""
+    job = db.get_scrub_job(job_id, username=current_username)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"job": job}
+
+@app.get("/scrub-results/{table_name}")
+async def get_scrub_results(table_name: str, current_username: str = Depends(get_current_username)):
+    """Fetches verified MSISDNs from a completed scrub results table."""
+    # Basic safety check to ensure it's a scrub results table
+    if not table_name.startswith("scrub_results_") and not table_name.startswith("email_csv_"):
+        raise HTTPException(status_code=400, detail="Invalid results table name")
+    
+    try:
+        rows = db.execute_query(f"SELECT msisdn FROM {table_name} LIMIT 10000")
+        msisdns = [r['msisdn'] for r in rows]
+        return {"msisdns": msisdns, "total": len(msisdns)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/scrub-jobs")
+async def list_scrub_jobs(current_username: str = Depends(get_current_username)):
+    """Lists recent scrub jobs for a user."""
+    jobs = db.list_scrub_jobs(username=current_username)
+    return {"jobs": jobs}
 
 @app.post("/launch-campaign")
 async def launch_campaign(request: LaunchRequest):
@@ -558,6 +702,7 @@ async def health_check():
     return {
         "status": "Monitoring", 
         "database": db_status,
+        "ai_engine": "Online" if prompt_agent.model else "Offline",
         "connected_to": db_host,
         "database_type": db.db_type,
         "alerts": alerts

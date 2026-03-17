@@ -10,7 +10,7 @@ const ACCOUNTS = [
   { value: 'nigeria', label: 'Nigeria', flag: '🇳🇬' },
 ];
 
-export default function FileUploadZone({ onUploadSuccess }) {
+export default function FileUploadZone({ onUploadSuccess, apiBase }) {
     const [isDragging, setIsDragging] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [fileName, setFileName] = useState('');
@@ -59,7 +59,7 @@ export default function FileUploadZone({ onUploadSuccess }) {
         formData.append('account', selectedAccount);
 
         try {
-            const res = await fetch('http://localhost:8000/upload', {
+            const res = await fetch(`${apiBase}/upload`, {
                 method: 'POST',
                 body: formData,
             });
@@ -88,9 +88,9 @@ export default function FileUploadZone({ onUploadSuccess }) {
                 }`}
             style={{
                 background: isDragging
-                    ? 'linear-gradient(135deg, var(--accent-cyan), var(--accent-blue))'
+                    ? 'linear-gradient(135deg, var(--accent-emerald), var(--accent-blue))'
                     : 'transparent',
-                boxShadow: isDragging ? '0 0 40px rgba(34, 211, 238, 0.3)' : 'none',
+                boxShadow: isDragging ? '0 0 40px rgba(0, 245, 160, 0.3)' : 'none',
                 width: '100%',
             }}
             onDragEnter={handleDrag}
@@ -134,37 +134,24 @@ export default function FileUploadZone({ onUploadSuccess }) {
                                 <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); setIsDropdownOpen(!isDropdownOpen); }}
+                                    className="input-field flex items-center justify-between"
                                     style={{
-                                        width: '100%',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        gap: '8px',
-                                        padding: '12px 16px',
-                                        borderRadius: '14px',
+                                        border: selectedAccount ? `2px solid var(--accent-cyan)` : '1px solid var(--glass-border)',
                                         background: 'var(--bg-glass-heavy)',
-                                        border: selectedAccount ? '2px solid var(--accent-cyan)' : '2px solid var(--glass-border)',
                                         color: selectedAccount ? 'var(--text-main)' : 'var(--text-dim)',
-                                        fontSize: '0.813rem',
-                                        fontWeight: '600',
-                                        cursor: 'pointer',
-                                        transition: 'all 0.3s ease',
                                     }}
                                 >
-                                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span className="flex items-center gap-2">
                                         {selectedAccountObj ? (
                                             <>
-                                                <span style={{ fontSize: '1.1rem' }}>{selectedAccountObj.flag}</span>
+                                                <span className="text-lg">{selectedAccountObj.flag}</span>
                                                 {selectedAccountObj.label}
                                             </>
                                         ) : (
-                                            'Select Account...'
+                                            'Select Protocol Target...'
                                         )}
                                     </span>
-                                    <ChevronDown size={16} style={{
-                                        transition: 'transform 0.2s',
-                                        transform: isDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)'
-                                    }} />
+                                    <ChevronDown size={14} className={`transition-transform duration-300 ${isDropdownOpen ? 'rotate-180' : ''}`} />
                                 </button>
 
                                 {isDropdownOpen && (
@@ -244,19 +231,16 @@ export default function FileUploadZone({ onUploadSuccess }) {
                                 Upload <span style={{ color: 'var(--accent-cyan)', fontFamily: 'JetBrains Mono, monospace' }}>CSV</span> or <span style={{ color: 'var(--accent-cyan)', fontFamily: 'JetBrains Mono, monospace' }}>XLSX</span>
                             </p>
 
-                            <label className="glass-button-primary group/btn relative px-12 py-3.5 rounded-2xl cursor-pointer hover:scale-[1.02] active:scale-[0.98] mt-3"
+                            <label className="btn-primary"
                                 style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
                                     width: 'fit-content',
                                     margin: '0 auto',
-                                    opacity: selectedAccount ? 1 : 0.5,
+                                    opacity: selectedAccount ? 1 : 0.4,
                                     pointerEvents: selectedAccount ? 'auto' : 'none',
+                                    padding: '12px 32px'
                                 }}>
-                                <div className="absolute inset-0 bg-white/10 opacity-0 group-hover/btn:opacity-100 transition-opacity rounded-2xl" />
-                                <span className="relative z-10 flex items-center justify-center gap-3 font-bold uppercase tracking-widest text-[11px] text-white">
-                                    <FileText size={18} className="transition-transform group-hover/btn:rotate-6" />
+                                <span className="flex items-center justify-center gap-3 font-black uppercase tracking-[0.2em] text-[10px]">
+                                    <FileText size={16} />
                                     Choose Data Source
                                 </span>
                                 <input type="file" style={{ display: 'none' }} onChange={(e) => {

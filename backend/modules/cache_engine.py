@@ -120,3 +120,4 @@ def cached(prefix: str, ttl: int = 3600):
 
 # Shared instance for easy access
 cache_engine = CacheEngine()
+

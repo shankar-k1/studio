@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState } from 'react';
 import mermaid from 'mermaid';
+import { motion } from 'framer-motion';
 
 export default function MermaidViewer({ chart }) {
     const [isClient, setIsClient] = useState(false);
@@ -11,6 +12,7 @@ export default function MermaidViewer({ chart }) {
             startOnLoad: true,
             theme: 'dark',
             securityLevel: 'loose',
+            fontFamily: 'Inter, sans-serif'
         });
     }, []);
 
@@ -20,13 +22,17 @@ export default function MermaidViewer({ chart }) {
         }
     }, [chart, isClient]);
 
-    if (!isClient) return <div className="p-8 text-center text-slate-500">Loading Blueprint...</div>;
+    if (!isClient) return <div className="p-12 text-center text-slate-500 font-bold uppercase tracking-widest text-[10px]">Initializing Engine...</div>;
 
     return (
-        <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-700 mt-4 overflow-auto">
-            <div className="mermaid">
+        <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="bg-black/40 backdrop-blur-xl p-8 rounded-[32px] border border-white-5 mt-6 overflow-auto min-h-[400px] flex items-center justify-center shadow-inner"
+        >
+            <div className="mermaid scale-110 origin-center transition-transform hover:scale-125 duration-700 cursor-zoom-in">
                 {chart}
             </div>
-        </div>
+        </motion.div>
     );
 }

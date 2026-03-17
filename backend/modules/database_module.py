@@ -150,6 +150,29 @@ class DatabaseModule:
                 email_uid VARCHAR(255) NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS scrub_jobs (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(50) NOT NULL,
+                status VARCHAR(20) DEFAULT 'PENDING',
+                operator VARCHAR(50),
+                options_json TEXT,
+                total_input BIGINT DEFAULT 0,
+                final_count BIGINT DEFAULT 0,
+                results_table VARCHAR(255),
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS scrub_job_inputs (
+                id SERIAL PRIMARY KEY,
+                job_id INTEGER REFERENCES scrub_jobs(id) ON DELETE CASCADE,
+                msisdn VARCHAR(20) NOT NULL
+            )
             """
         ]
         try:
@@ -163,8 +186,195 @@ class DatabaseModule:
                 count = connection.execute(text("SELECT COUNT(*) FROM user_details")).scalar()
                 if count == 0:
                     self.create_admin_user("admin", "admin123")
+                    self.create_admin_user("admin@vocal-sync.com", "admin")
         except Exception as e:
             print(f"Table Initialization Error: {e}")
+
+    def create_scrub_job(self, username: str, total_input: int, operator: str | None, options: dict | None):
+        """Creates a scrub job metadata entry and returns its ID."""
+        from datetime import datetime
+        import json
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(
+                    text("""
+                        INSERT INTO scrub_jobs (username, status, operator, options_json, total_input, created_at)
+                        VALUES (:username, :status, :operator, :options_json, :total_input, :created_at)
+                        RETURNING id
+                    """),
+                    {
+                        "username": username,
+                        "status": "PENDING",
+                        "operator": operator,
+                        "options_json": json.dumps(options or {}),
+                        "total_input": int(total_input or 0),
+                        "created_at": datetime.utcnow(),
+                    },
+                )
+                job_id = result.scalar()
+                conn.commit()
+                return job_id
+        except Exception as e:
+            self.last_error = f"Create Scrub Job Error: {str(e)}"
+            print(self.last_error)
+            return None
+
+    def add_scrub_job_inputs(self, job_id: int, msisdns: list[str]):
+        """Persists the raw MSISDN base for a job in a separate table (chunk-safe)."""
+        if not msisdns:
+            return True
+        
+        # Use smaller chunks for execute_values to stay within query size limits
+        chunk_size = 50000
+        msisdn_chunks = [msisdns[i:i + chunk_size] for i in range(0, len(msisdns), chunk_size)]
+        
+        raw_conn = None
+        try:
+            raw_conn = self.engine.raw_connection()
+            cursor = raw_conn.cursor()
+            from psycopg2.extras import execute_values
+            
+            for chunk in msisdn_chunks:
+                data = [(job_id, str(m)) for m in chunk if m]
+                if not data:
+                    continue
+                execute_values(
+                    cursor,
+                    "INSERT INTO scrub_job_inputs (job_id, msisdn) VALUES %s",
+                    data,
+                    page_size=10000,
+                )
+                raw_conn.commit()
+            
+            cursor.close()
+            return True
+        except Exception as e:
+            err_msg = f"Failed to persist scrub job inputs: {str(e)}"
+            self.last_error = err_msg
+            print(f"ERROR: {err_msg}")
+            if raw_conn:
+                try:
+                    raw_conn.rollback()
+                except:
+                    pass
+            return False
+        finally:
+            if raw_conn:
+                try:
+                    raw_conn.close()
+                except:
+                    pass
+
+    def load_scrub_job_inputs(self, job_id: int, chunk_size: int = 100000):
+        """Generator yielding MSISDN chunks for a job to avoid loading entire base in memory."""
+        if not self.engine:
+            return
+        offset = 0
+        while True:
+            with self.engine.connect() as conn:
+                rows = conn.execute(
+                    text(
+                        """
+                        SELECT msisdn FROM scrub_job_inputs
+                        WHERE job_id = :job_id
+                        ORDER BY id
+                        OFFSET :offset LIMIT :limit
+                        """
+                    ),
+                    {"job_id": job_id, "offset": offset, "limit": chunk_size},
+                ).fetchall()
+                if not rows:
+                    break
+                yield [r[0] for r in rows]
+                offset += len(rows)
+
+    def update_scrub_job_status(
+        self,
+        job_id: int,
+        status: str,
+        final_count: int | None = None,
+        results_table: str | None = None,
+        error_message: str | None = None,
+        mark_started: bool = False,
+    ):
+        """Updates status and optional metadata of a scrub job."""
+        from datetime import datetime
+        fields = ["status = :status"]
+        params = {"job_id": job_id, "status": status}
+        if final_count is not None:
+            fields.append("final_count = :final_count")
+            params["final_count"] = int(final_count)
+        if results_table is not None:
+            fields.append("results_table = :results_table")
+            params["results_table"] = results_table
+        if error_message is not None:
+            fields.append("error_message = :error_message")
+            params["error_message"] = error_message
+        if mark_started:
+            fields.append("started_at = :started_at")
+            params["started_at"] = datetime.utcnow()
+        if status in ("COMPLETED", "FAILED"):
+            fields.append("completed_at = :completed_at")
+            params["completed_at"] = datetime.utcnow()
+        try:
+            with self.engine.connect() as conn:
+                conn.execute(
+                    text(
+                        f"UPDATE scrub_jobs SET {', '.join(fields)} WHERE id = :job_id"
+                    ),
+                    params,
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            self.last_error = f"Update Scrub Job Error: {str(e)}"
+            print(self.last_error)
+            return False
+
+    def get_scrub_job(self, job_id: int, username: str | None = None):
+        """Fetches a single scrub job, optionally asserting ownership by username."""
+        if not self.engine:
+            return None
+        try:
+            with self.engine.connect() as conn:
+                if username:
+                    row = conn.execute(
+                        text(
+                            "SELECT * FROM scrub_jobs WHERE id = :job_id AND username = :username"
+                        ),
+                        {"job_id": job_id, "username": username},
+                    ).mappings().first()
+                else:
+                    row = conn.execute(
+                        text("SELECT * FROM scrub_jobs WHERE id = :job_id"),
+                        {"job_id": job_id},
+                    ).mappings().first()
+                return dict(row) if row else None
+        except Exception as e:
+            print(f"Get Scrub Job Error: {e}")
+            return None
+
+    def list_scrub_jobs(self, username: str, limit: int = 20):
+        """Lists recent scrub jobs for a given user."""
+        if not self.engine:
+            return []
+        try:
+            with self.engine.connect() as conn:
+                rows = conn.execute(
+                    text(
+                        """
+                        SELECT * FROM scrub_jobs
+                        WHERE username = :username
+                        ORDER BY created_at DESC
+                        LIMIT :limit
+                        """
+                    ),
+                    {"username": username, "limit": limit},
+                ).mappings().all()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            print(f"List Scrub Jobs Error: {e}")
+            return []
 
     def create_admin_user(self, username, password):
         import bcrypt
@@ -351,40 +561,60 @@ class DatabaseModule:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         table_name = f"scrub_results_{timestamp}"
         
+        # Use smaller chunks for execute_values to stay within query size limits
+        chunk_size = 50000
+        msisdn_chunks = [msisdns[i:i + chunk_size] for i in range(0, len(msisdns), chunk_size)]
+        
+        raw_conn = None
         try:
-            with self.engine.raw_connection() as raw_conn:
-                cursor = raw_conn.cursor()
-                # 1. Create the specific scrub results table
-                cursor.execute(f"""
-                    CREATE TABLE IF NOT EXISTS {table_name} (
-                        id SERIAL PRIMARY KEY,
-                        msisdn VARCHAR(20) NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
-                # 2. Incredible fast bulk insertion logic for cloud DBs
-                from psycopg2.extras import execute_values
-                data = [(str(m),) for m in msisdns]
+            raw_conn = self.engine.raw_connection()
+            cursor = raw_conn.cursor()
+            # 1. Create the specific scrub results table
+            cursor.execute(f"""
+                CREATE TABLE IF NOT EXISTS {table_name} (
+                    id SERIAL PRIMARY KEY,
+                    msisdn VARCHAR(20) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # 2. Incredible fast chunked bulk insertion
+            from psycopg2.extras import execute_values
+            for chunk in msisdn_chunks:
+                data = [(str(m),) for m in chunk]
                 execute_values(
                     cursor,
                     f"INSERT INTO {table_name} (msisdn) VALUES %s",
                     data,
                     page_size=10000
                 )
-                
                 raw_conn.commit()
-                cursor.close()
+            
+            cursor.close()
 
-                # Invalidate stats cache since we might have new data elsewhere if needed
+            # Invalidate stats cache
+            try:
                 from .cache_engine import cache_engine
                 cache_engine.delete("db_stats")
-                
-                return True, table_name
+            except:
+                pass
+            
+            return True, table_name
         except Exception as e:
             err_msg = f"Failed to auto-save scrub results: {str(e)}"
             print(f"ERROR: {err_msg}")
+            if raw_conn:
+                try:
+                    raw_conn.rollback()
+                except:
+                    pass
             return False, err_msg
+        finally:
+            if raw_conn:
+                try:
+                    raw_conn.close()
+                except:
+                    pass
 
 
     def execute_query(self, query, params=None):
@@ -403,85 +633,88 @@ class DatabaseModule:
             return []
 
     def _expand_msisdns(self, msisdns):
-        """Expands a list of bare MSISDNs into multiple common formats for robust lookup."""
+        """Expands a list of bare MSISDNs into multiple common formats for robust lookup.
+        High-performance set-based expansion.
+        """
         expanded = set()
         for m in msisdns:
             if not m: continue
+            # Basic fast normalization for lookup
             m_str = str(m).strip()
-            # Add Bare (no prefix)
+            # 1. Bare (assume it's bare if it doesn't lead with 0/234)
             expanded.add(m_str)
-            # Add 0-prefixed (Local)
-            expanded.add(f"0{m_str}")
-            # Add 234-prefixed (International)
-            expanded.add(f"234{m_str}")
-            # Add +234-prefixed
-            expanded.add(f"+234{m_str}")
-            
-            # Robust: Add suffixes for cases where DB has partial numbers (e.g. 8 or 9 digits)
+            # 2. 0-prefixed (Local)
+            if not m_str.startswith('0'):
+                expanded.add(f"0{m_str}")
+            # 3. 234-prefixed (International)
+            if not m_str.startswith('234'):
+                expanded.add(f"234{m_str}")
+            # 4. Suffix (very robust for partial DB data)
             if len(m_str) > 8:
                 expanded.add(m_str[-8:])
-            if len(m_str) > 9:
-                expanded.add(m_str[-9:])
         return list(expanded)
 
     def _chunked_lookup(self, msisdns, query_template, extra_params=None):
-        """Processes large MSISDN lists in batches with Cache integration."""
+        """Processes large MSISDN lists in parallel batches for extreme speed."""
         if not msisdns:
             return []
             
         from .cache_engine import cache_engine
+        import concurrent.futures
         
-        # 1. OPTIMIZATION: Check table size first. If small, fetch all once and cache it!
+        # 1. OPTIMIZATION: Small table fetch (Table-level caching)
         import re
         table_match = re.search(r'FROM\s+(\w+)', query_template, re.IGNORECASE)
         if table_match and self.engine:
             table_name = table_match.group(1)
-            
-            # Try to get from cache first
             cache_key = f"table_full:{table_name}:{hash(str(extra_params))}"
             cached_data = cache_engine.get(cache_key)
             if cached_data is not None:
-                print(f"DEBUG: Cache Hit for full table {table_name}")
                 return cached_data
 
             try:
                 with self.engine.connect() as conn:
-                    # Quick count check
                     count = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}")).scalar()
-                    if count < 50000: # Increased threshold for caching
-                        print(f"DEBUG: Cache Miss - Loading {count} rows from {table_name}")
+                    if count < 50000:
                         q_str = f"SELECT msisdn FROM {table_name}"
-                        if extra_params:
-                            if "service_id" in extra_params:
-                                q_str += " WHERE service_id = :service_id AND status = 'ACTIVE'"
+                        if extra_params and "service_id" in extra_params:
+                            q_str += " WHERE service_id = :service_id AND status = 'ACTIVE'"
                         
                         all_res = conn.execute(text(q_str), extra_params or {})
                         res_list = [row[0] for row in all_res]
-                        
-                        # Store in cache for 10 minutes
                         cache_engine.set(cache_key, res_list, expire=600)
                         return res_list
             except Exception as e:
-                print(f"DEBUG: Cache optimization check failed for {table_name}: {e}")
+                print(f"DEBUG: Optimization check failed: {e}")
 
-        # 2. DEFAULT: Standard chunked IN lookup for larger tables
+        # 2. PARALLEL CHUNKED LOOKUP
         expanded = self._expand_msisdns(msisdns)
         results = []
-        chunk_size = 10000 # Increased for fewer roundtrips
+        chunk_size = 30000 # Larger chunks = fewer calls
+        chunks = [expanded[i:i + chunk_size] for i in range(0, len(expanded), chunk_size)]
         
-        print(f"DEBUG: Chunked-lookup for {len(expanded)} entries in {chunk_size} sized batches.")
-        for i in range(0, len(expanded), chunk_size):
-            chunk = expanded[i:i + chunk_size]
-            params = {"msisdns": chunk}
-            if extra_params:
-                params.update(extra_params)
-            
-            query = text(query_template).bindparams(
-                bindparam("msisdns", expanding=True)
-            )
-            
-            chunk_results = self.execute_query(query, params)
-            results.extend([row['msisdn'] for row in chunk_results if 'msisdn' in row])
+        def process_chunk(chunk_list):
+            try:
+                with self.engine.connect() as connection:
+                    params = {"msisdns": chunk_list}
+                    if extra_params:
+                        params.update(extra_params)
+                    
+                    query = text(query_template).bindparams(
+                        bindparam("msisdns", expanding=True)
+                    )
+                    chunk_results = connection.execute(query, params).mappings()
+                    return [row['msisdn'] for row in chunk_results if 'msisdn' in row]
+            except Exception as e:
+                print(f"Chunk Query Error on {table_name}: {e}")
+                return []
+
+        # Utilize ThreadPool to handle parallel network requests to Supabase
+        max_workers = min(10, len(chunks)) if chunks else 1
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_chunk = {executor.submit(process_chunk, c): c for c in chunks}
+            for future in concurrent.futures.as_completed(future_to_chunk):
+                results.extend(future.result())
             
         return list(set(results)) # Deduplicate matches
 
@@ -514,11 +747,15 @@ class DatabaseModule:
             return True, "No MSISDNs to save."
 
         from datetime import datetime
-        import re
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         table_name = f"email_csv_{timestamp}"
         
+        # Use smaller chunks for execute_values to stay within query size limits
+        chunk_size = 50000
+        msisdn_chunks = [msisdns[i:i + chunk_size] for i in range(0, len(msisdns), chunk_size)]
+        
+        raw_conn = None
         try:
             raw_conn = self.engine.raw_connection()
             cursor = raw_conn.cursor()
@@ -527,7 +764,6 @@ class DatabaseModule:
             cursor.execute("SELECT 1 FROM email_sync_log WHERE email_uid = %s", (str(uid),))
             if cursor.fetchone():
                 cursor.close()
-                raw_conn.close()
                 return False, f"Email UID {uid} already processed."
             
             # 2. Create NEW timestamped table
@@ -539,28 +775,40 @@ class DatabaseModule:
                 )
             """)
             
-            # 3. Fast bulk insert using psycopg2 execute_values
+            # 3. Fast chunked bulk insert
             from psycopg2.extras import execute_values
-            data = [(str(m),) for m in msisdns]
-            print(f"DEBUG: Bulk inserting {len(data)} rows into {table_name}...")
-            execute_values(
-                cursor,
-                f"INSERT INTO {table_name} (msisdn) VALUES %s",
-                data,
-                page_size=10000
-            )
+            print(f"DEBUG: Bulk inserting {len(msisdns)} rows into {table_name} in chunks...")
+            for chunk in msisdn_chunks:
+                data = [(str(m),) for m in chunk]
+                execute_values(
+                    cursor,
+                    f"INSERT INTO {table_name} (msisdn) VALUES %s",
+                    data,
+                    page_size=10000
+                )
+                raw_conn.commit()
             
             # 4. Log the sync
             cursor.execute(
                 "INSERT INTO email_sync_log (email_uid, filename) VALUES (%s, %s)",
                 (str(uid), f"{filename} -> {table_name}")
             )
-            
             raw_conn.commit()
+            
             cursor.close()
-            raw_conn.close()
             return True, table_name
         except Exception as e:
             err_msg = f"Email CSV Sync Error: {str(e)}"
             print(err_msg)
+            if raw_conn:
+                try:
+                    raw_conn.rollback()
+                except:
+                    pass
             return False, err_msg
+        finally:
+            if raw_conn:
+                try:
+                    raw_conn.close()
+                except:
+                    pass
