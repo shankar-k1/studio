@@ -1,0 +1,9 @@
+DEBUG: LoadDistributor initialized with 8 process workers.
+DEBUG: CacheEngine initialized with DISKCACHE at /tmp/obd_cache
+ℹ️ [BACKEND] Scrub worker started
+DEBUG: Testing DB connection to aws-1-ap-southeast-1.pooler.supabase.com...
+DEBUG: DB Connection Successful.
+DEBUG: Testing DB connection to aws-1-ap-southeast-1.pooler.supabase.com...
+DEBUG: DB Connection Successful.
+ℹ️ [BACKEND] Starting scrub job 21
+DEBUG: Starting Optimized Parallel Scrub. Count: 286396
