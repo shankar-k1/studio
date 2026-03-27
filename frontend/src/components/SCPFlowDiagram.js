@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback } from "react";
+import { useState, useRef, useMemo, useCallback, useEffect } from "react";
 
 const getApiBase = () => {
   if (typeof window === "undefined") return "http://localhost:8000";
@@ -1409,11 +1409,16 @@ function dlPNG(el, name, w, h) { const s = new XMLSerializer().serializeToString
 
 // ─── DB API helper ────────────────────────────────────────────────────────────
   const API = (typeof window !== "undefined" && window.SCP_API_URL) || (typeof window !== "undefined" && window.location.hostname === "localhost" ? "http://localhost:8000" : API_BASE);
-async function dbSave(payload) { try { const r = await fetch(`${API}/api/flows`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); return await r.json(); } catch (e) { return { ok: false, error: e.message }; } }
-async function dbSaveExplanation(uuid, sections) { try { const r = await fetch(`${API}/api/flows/${uuid}/explanation`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sections }) }); return await r.json(); } catch (e) { return { ok: false, error: e.message }; } }
-async function dbList() { try { const r = await fetch(`${API}/api/flows`); return await r.json(); } catch (e) { return { ok: false, flows: [] }; } }
-async function dbGet(uuid) { try { const r = await fetch(`${API}/api/flows/${uuid}`); return await r.json(); } catch (e) { return { ok: false, error: e.message }; } }
-async function dbDelete(uuid) { try { const r = await fetch(`${API}/api/flows/${uuid}`, { method: "DELETE" }); return await r.json(); } catch (e) { return { ok: false, error: e.message }; } }
+  const getAuthHeaders = () => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    return { "Content-Type": "application/json", ...(token ? { "Authorization": `Bearer ${token}` } : {}) };
+  };
+
+async function dbSave(payload) { try { const r = await fetch(`${API}/api/flows`, { method: "POST", headers: getAuthHeaders(), body: JSON.stringify(payload) }); return await r.json(); } catch (e) { return { ok: false, error: e.message }; } }
+async function dbSaveExplanation(uuid, sections) { try { const r = await fetch(`${API}/api/flows/${uuid}/explanation`, { method: "POST", headers: getAuthHeaders(), body: JSON.stringify({ sections }) }); return await r.json(); } catch (e) { return { ok: false, error: e.message }; } }
+async function dbList() { try { const r = await fetch(`${API}/api/flows`, { headers: getAuthHeaders() }); return await r.json(); } catch (e) { return { ok: false, flows: [] }; } }
+async function dbGet(uuid) { try { const r = await fetch(`${API}/api/flows/${uuid}`, { headers: getAuthHeaders() }); return await r.json(); } catch (e) { return { ok: false, error: e.message }; } }
+async function dbDelete(uuid) { try { const r = await fetch(`${API}/api/flows/${uuid}`, { method: "DELETE", headers: getAuthHeaders() }); return await r.json(); } catch (e) { return { ok: false, error: e.message }; } }
 
 // ─── Flow Explain Tab ─────────────────────────────────────────────────────────
 function FlowExplainTab({ graph, displayNodes, edges, fname, flowUuid, originalXmlProp, th }) {
@@ -1495,14 +1500,14 @@ Write in plain English. Use bullet points and numbered lists. Avoid technical ja
         // Use the specialized XML-to-English generator
         resp = await fetch(`${API}/generate-flow-explanation`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ xml_content: originalXml })
         });
       } else {
         // Fallback to text-based summary explanation
         resp = await fetch(`${API}/explain-flow`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getAuthHeaders(),
           body: JSON.stringify({
             system: SYSTEM,
             message: `Here is the IVR flow structure from "${filename}":\n\n${summary}\n\nPlease explain this IVR flow in plain English as described.`

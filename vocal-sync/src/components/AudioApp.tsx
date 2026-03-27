@@ -350,8 +350,10 @@ export default function AudioApp() {
 
   const fetchHistory = async () => {
     try {
-      const res = await axios.get("/api/history");
-      setHistory(res.data.history);
+      const res = await axios.get(`${process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'}/vocal-sync/history`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('obd_token')}` }
+      });
+      setHistory(res.data.history || []);
     } catch (err) {
       console.error("Failed to fetch history:", err);
     }
@@ -502,17 +504,23 @@ export default function AudioApp() {
         });
         if (ttsResponse.data.error) throw new Error(ttsResponse.data.error);
 
-        setProcessedResults((current) => [
-          ...current,
-          {
-            id: Math.random().toString(36).slice(2, 11),
-            fileName: currentFile.name,
-            originalText: sourceText,
-            translatedText: translated,
-            detectedLang: sourceLang,
-            outputUrl: ttsResponse.data.audioUrl,
-          },
-        ]);
+        const result = {
+          id: Math.random().toString(36).slice(2, 11),
+          fileName: currentFile.name,
+          originalText: sourceText,
+          translatedText: translated,
+          detectedLang: sourceLang,
+          outputUrl: ttsResponse.data.audioUrl,
+        };
+        setProcessedResults((current) => [...current, result]);
+        
+        // Push to permanent DB history
+        await axios.post(`${process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000'}/vocal-sync/history`, {
+          ...result,
+          targetLang
+        }, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('obd_token')}` }
+        });
       } catch (error: any) {
         console.error(`Error processing ${currentFile.name}:`, error);
         setErrorMsg(`Failed to process ${currentFile.name}: ${error.message}`);
@@ -958,11 +966,59 @@ export default function AudioApp() {
                       )}
                     </motion.article>
                   ))}
+                  {showHistory && history.map((h, idx) => (
+                    <motion.article
+                      key={`history-${idx}`}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="result-card p-6 border border-emerald-500/10 bg-emerald-500/5"
+                    >
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                           <HistoryIcon size={16} className="text-emerald-500" />
+                           <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Historical Record</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-500">{new Date(h.created_at).toLocaleString()}</span>
+                      </div>
+                      <div className="flex items-start gap-4">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[0.85rem] bg-[var(--accent-soft)] text-[var(--accent)]">
+                          <Music2 className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold">{h.filename}</h3>
+                          <p className="tiny-note">{h.source_lang} to {h.target_lang}</p>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                         <div className="text-well p-4 bg-black/20">
+                            <p className="text-[9px] font-black uppercase tracking-wider text-slate-400 mb-2">Source</p>
+                            <p className="text-xs line-clamp-3">{h.original_text}</p>
+                         </div>
+                         <div className="text-well p-4 bg-black/20">
+                            <p className="text-[9px] font-black uppercase tracking-wider text-slate-400 mb-2">Translation</p>
+                            <p className="text-xs line-clamp-3">{h.translated_text}</p>
+                         </div>
+                      </div>
+                      {h.output_url && (
+                        <div className="mt-4 flex items-center gap-4">
+                           <audio src={h.output_url} controls className="h-8 max-w-[200px]" />
+                           <a href={h.output_url} download className="text-[10px] font-bold text-emerald-400 hover:underline">DOWNLOAD ORIGINAL</a>
+                        </div>
+                      )}
+                    </motion.article>
+                  ))}
                   {processedResults.length === 0 && !showHistory && (
                      <div className="flex flex-col items-center justify-center p-20 border-2 border-dashed border-[var(--line)] rounded-[2rem] text-[var(--muted)]">
                         <HistoryIcon className="w-10 h-10 mb-4 opacity-20" />
                         <p className="font-semibold">Workflow session results will appear here</p>
                         <p className="text-sm mt-1">Or toggle 'View History' to see past explorations</p>
+                     </div>
+                  )}
+                  {showHistory && history.length === 0 && (
+                     <div className="flex flex-col items-center justify-center p-20 border-2 border-dashed border-[var(--line)] rounded-[2rem] text-[var(--muted)]">
+                        <HistoryIcon className="w-10 h-10 mb-4 opacity-20" />
+                        <p className="font-semibold">No historical activity found</p>
+                        <p className="text-sm mt-1">Processed files will automatically sync to database</p>
                      </div>
                   )}
                 </div>

@@ -1,4 +1,5 @@
 import os
+import json
 import jwt
 import uvicorn
 import datetime
@@ -118,6 +119,41 @@ async def get_stats():
 async def get_ai_status():
     return prompt_agent.get_status()
 
+@app.get("/settings")
+async def get_settings(user: str = Depends(get_current_user)):
+    keys = ["LLM_API_KEY", "VOIP_MODE", "SIP_HOST", "SIP_PORT", "SIP_USER", "SIP_PASS", "DEEPGRAM_API_KEY", "ELEVENLABS_API_KEY"]
+    results = {}
+    for k in keys:
+        results[k] = db.get_setting(k, os.getenv(k, ""))
+    return results
+
+@app.post("/settings")
+async def update_settings(data: Dict[str, str], user: str = Depends(get_current_user)):
+    for k, v in data.items():
+        db.update_setting(k, v)
+    return {"message": "Settings updated"}
+
+@app.get("/vocal-sync/history")
+async def get_vs_history(user: str = Depends(get_current_user)):
+    return {"history": db.get_vocal_sync_history()}
+
+@app.post("/vocal-sync/history")
+async def add_vs_history(data: Dict, user: str = Depends(get_current_user)):
+    db.add_vocal_sync_history(
+        filename=data.get("fileName"),
+        original_text=data.get("originalText"),
+        translated_text=data.get("translatedText"),
+        source_lang=data.get("detectedLang"),
+        target_lang=data.get("targetLang"),
+        output_url=data.get("outputUrl"),
+        metadata_json=json.dumps(data.get("metadata", {}))
+    )
+    return {"status": "success"}
+
+@app.get("/auth/me")
+async def auth_me(user: str = Depends(get_current_user)):
+    return {"username": user, "role": "ADMIN"}
+
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...), user: str = Depends(get_current_user)):
     return await upload_handler.handle_upload(file)
@@ -137,6 +173,7 @@ async def get_job(job_id: int):
 async def generate_flow(data: dict, user: str = Depends(get_current_user)):
     doc_text = data.get("doc_text")
     return await prompt_agent.generate_flow(doc_text)
+
 @app.post("/generate-flow-explanation")
 async def generate_explanation(data: dict, user: str = Depends(get_current_user)):
     xml_content = data.get("xml_content")
@@ -146,11 +183,42 @@ async def generate_explanation(data: dict, user: str = Depends(get_current_user)
 
 @app.post("/explain-flow")
 async def explain_flow(data: dict, user: str = Depends(get_current_user)):
-    # This endpoint supports the technical summary format from SCPFlowDiagram.js
     message = data.get("message")
     system = data.get("system")
     prompt = f"{system}\n\n{message}"
     return {"explanation": await prompt_agent._generate(prompt)}
+
+# --- FLOW STORAGE ENDPOINTS ---
+@app.get("/api/flows")
+async def get_flows(user: str = Depends(get_current_user)):
+    return db.get_flows()
+
+@app.get("/api/flows/{uuid}")
+async def get_flow(uuid: str, user: str = Depends(get_current_user)):
+    flow = db.get_flow(uuid)
+    if not flow: raise HTTPException(status_code=404, detail="Flow not found")
+    return flow
+
+@app.post("/api/flows")
+async def save_flow(data: dict, user: str = Depends(get_current_user)):
+    success, result = db.save_flow(data)
+    if not success: raise HTTPException(status_code=500, detail=result)
+    return {"status": "success", "uuid": result if isinstance(result, str) else data.get("uuid")}
+
+@app.delete("/api/flows/{uuid}")
+async def delete_flow(uuid: str, user: str = Depends(get_current_user)):
+    if db.delete_flow(uuid): return {"status": "deleted"}
+    raise HTTPException(status_code=500, detail="Failed to delete")
+
+@app.post("/api/flows/{uuid}/explanation")
+async def save_explanation(uuid: str, data: dict, user: str = Depends(get_current_user)):
+    sections = data.get("sections", [])
+    if db.save_explanation(uuid, sections): return {"status": "saved"}
+    raise HTTPException(status_code=500, detail="Failed to save explanation")
+
+@app.get("/api/flows/{uuid}/explanation")
+async def get_explanation(uuid: str, user: str = Depends(get_current_user)):
+    return {"sections": db.get_explanation(uuid)}
 
 # --- VOIP ENDPOINTS ---
 @app.post("/trigger-voip-call")

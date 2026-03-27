@@ -226,10 +226,9 @@ export default function Dashboard() {
 
 
   useEffect(() => {
-    // Always force light theme for this build as requested
-    setTheme('light');
-    document.documentElement.setAttribute('data-theme', 'light');
-    localStorage.setItem('obd-theme', 'light');
+    const saved = localStorage.getItem('obd-theme') || 'dark';
+    setTheme(saved);
+    document.documentElement.setAttribute('data-theme', saved);
   }, []);
 
   const themes = ['dark', 'light', 'midnight'];
@@ -686,7 +685,7 @@ export default function Dashboard() {
 
   const stopAllCalls = async () => {
     try {
-      const res = await fetch(`${API_BASE}/voip/stop-calls`, { 
+      const res = await fetch(`${API_BASE}/voip/stop-calls`, {
         method: 'POST',
         headers: getAuthHeaders()
       });
@@ -902,64 +901,71 @@ export default function Dashboard() {
   }
 
   // --- REUSABLE MODULE CARD ---
+  // --- REUSABLE MODULE CARD ---
   function ModuleCard({ icon, title, desc, accent, onClick, disabled }) {
     return (
       <motion.div
-        whileHover={!disabled ? { y: -4, scale: 1.01, boxShadow: `0 20px 40px -10px ${accent}22` } : {}}
-        whileTap={!disabled ? { scale: 0.99 } : {}}
+        whileHover={!disabled ? { y: -12, scale: 1.02, boxShadow: `0 40px 100px -12px ${accent}33` } : {}}
+        whileTap={!disabled ? { scale: 0.98 } : {}}
         onClick={!disabled ? onClick : undefined}
-        className={`p-6 flex flex-col items-center text-center transition-all relative overflow-hidden group ${disabled ? 'opacity-30 grayscale cursor-not-allowed' : 'cursor-pointer'}`}
+        className={`flex flex-col items-center text-center transition-all relative overflow-hidden group ${disabled ? 'opacity-30 grayscale cursor-not-allowed' : 'cursor-pointer'}`}
         style={{
-          minHeight: '220px',
-          width: '280px',
-          borderRadius: '24px',
-          background: 'var(--bg-glass)',
+          borderRadius: '48px',
+          background: 'var(--bg-glass-heavy)',
           border: '1px solid var(--glass-border)',
-          boxShadow: '0 4px 6px rgba(0,0,0,0.05)'
+          backdropFilter: 'blur(40px)',
+          boxShadow: '0 20px 80px rgba(0,0,0,0.1)',
+          width: '300px',
+          height: '300px',
+          minHeight: '300px',
+          padding: '48px 40px',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          flexShrink: 0
         }}
       >
         {/* Animated Corner Accents */}
-        <div className="absolute top-0 left-0 w-20 h-10 opacity-0 group-hover:opacity-100 transition-opacity duration-700"
-          style={{ background: `radial-gradient(circle at 0% 0%, ${accent}33, transparent 70%)` }} />
+        <div className="absolute top-0 left-0 w-full h-full opacity-0 group-hover:opacity-100 transition-opacity duration-1000"
+          style={{ background: `radial-gradient(circle at 50% 0%, ${accent}11, transparent 70%)` }} />
 
-        <div
-          className="absolute top-0 left-0 w-full h-[2px]"
-          style={{ background: `linear-gradient(to right, transparent, ${accent}, transparent)`, opacity: 0.4 }}
-        />
-
-        <div
-          className="w-12 h-12 rounded-[14px] flex items-center justify-center mb-4 transition-all duration-500 relative group-hover:shadow-[0_0_20px_-5px_var(--accent-cyan)]"
-          style={{
-            background: `rgba(255, 255, 255, 0.03)`,
-            color: accent,
-            border: `1px solid ${accent}33`,
-            boxShadow: `inset 0 0 10px ${accent}11`
-          }}
-        >
-          <div className="relative z-10 scale-100 group-hover:scale-110 transition-transform duration-500">
-            {icon}
+        <div className="flex flex-col items-center w-full">
+          <div
+            className="w-16 h-16 rounded-[24px] flex items-center justify-center mb-10 transition-all duration-500 relative group-hover:shadow-[0_0_40px_-5px_var(--accent-cyan)]"
+            style={{
+              background: `rgba(255, 255, 255, 0.03)`,
+              color: accent,
+              border: `1px solid ${accent}33`,
+            }}
+          >
+            <div className="relative z-10 scale-100 group-hover:scale-110 transition-transform duration-500">
+              {React.cloneElement(icon, { size: 28 })}
+            </div>
           </div>
+
+          <h3 className="text-xl font-black uppercase tracking-[0.25em] mb-4" style={{
+            color: 'var(--text-main)',
+            filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))'
+          }}>{title}</h3>
+
+          <p className="text-[13px] font-medium leading-relaxed opacity-40 group-hover:opacity-80 transition-opacity">
+            {desc}
+          </p>
         </div>
 
-        <h3 className="text-[0.9rem] font-black uppercase tracking-[0.15em] mb-2" style={{
-          color: 'var(--text-main)',
-        }}>{title}</h3>
+        <div className="w-full">
+          {!disabled && (
+            <div className="py-4 px-8 rounded-2xl border border-white-10 text-[11px] font-black uppercase tracking-[0.3em] flex items-center justify-center gap-4 group-hover:bg-white-5 group-hover:border-emerald-500/30 group-hover:text-emerald-400 transition-all shadow-xl">
+              Enter Studio <ChevronRight size={16} className="group-hover:translate-x-2 transition-transform" />
+            </div>
+          )}
 
-        <p className="text-[11px] font-medium leading-relaxed text-dim opacity-50 px-2 mb-6 group-hover:opacity-100 transition-opacity">
-          {desc}
-        </p>
-
-        {!disabled && (
-          <div className="mt-auto py-2.5 px-6 rounded-full border border-white-5 text-[9px] font-black uppercase tracking-[0.25em] flex items-center gap-2 group-hover:bg-white-5 group-hover:border-white-10 transition-all">
-            Click Here <ChevronRight size={12} className="group-hover:translate-x-1 transition-transform" />
-          </div>
-        )}
-
-        {disabled && (
-          <div className="mt-auto py-2 px-6 rounded-full bg-white-5 text-[8px] font-black uppercase tracking-[0.2em] opacity-30">
-            Encrypted
-          </div>
-        )}
+          {disabled && (
+            <div className="py-3 px-8 rounded-2xl bg-white-5 border border-white-5 text-[10px] font-black uppercase tracking-[0.2em] opacity-40 flex items-center justify-center">
+              Not started
+            </div>
+          )}
+        </div>
       </motion.div>
     );
   }
@@ -968,24 +974,97 @@ export default function Dashboard() {
   function MenuOption({ icon, title, desc, color, onClick }) {
     return (
       <motion.div
-        whileHover={{ x: 10, background: 'rgba(255,255,255,0.01)' }}
+        whileHover={{ x: 6, background: 'rgba(255,255,255,0.03)' }}
         onClick={() => {
-          // Close menu immediately after selection
           setIsMenuOpen(false);
           onClick();
         }}
-        className="flex items-center gap-6 p-6 rounded-3xl cursor-pointer group"
+        className="flex items-center gap-4 p-4 rounded-2xl cursor-pointer group transition-all"
       >
-        <div className="w-12 h-12 rounded-2xl flex items-center justify-center transition-all group-hover:scale-110" style={{ background: 'rgba(255,255,255,0.05)', color: color }}>
-          {icon}
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center transition-all group-hover:scale-110" style={{ background: 'rgba(255,255,255,0.05)', color: color }}>
+          {React.cloneElement(icon, { size: 20 })}
         </div>
         <div className="flex flex-col">
-          <span className="text-sm font-black uppercase tracking-widest">{title}</span>
-          <span className="text-[10px] opacity-40 font-bold uppercase tracking-wider mt-1">{desc}</span>
+          <span className="text-xs font-black uppercase tracking-widest">{title}</span>
+          <span className="text-[8px] opacity-40 font-bold uppercase tracking-wider mt-0.5">{desc}</span>
         </div>
       </motion.div>
     );
   }
+
+  // GLOBAL SIDEBAR COMPONENT
+  const GlobalSidebar = () => {
+    if (!isMenuOpen) return null;
+    return (
+      <div className="fixed inset-0 z-[100] flex">
+        <div
+          onClick={() => setIsMenuOpen(false)}
+          className="absolute inset-0 bg-black/60 backdrop-blur-md"
+        />
+        <div
+          className="relative h-full glass-panel flex flex-col"
+          style={{
+            width: 'min(280px, 80vw)',
+            borderRadius: '0 24px 24px 0',
+            padding: '32px 0',
+            borderLeft: 'none',
+            boxShadow: '20px 0 80px rgba(0,0,0,0.3)',
+            zIndex: 101,
+          }}
+        >
+          <div className="px-8 mb-8 flex justify-between items-center border-b border-white-5 pb-6">
+            <div className="flex flex-col">
+              <span className="text-[9px] font-black uppercase tracking-[0.3em] text-emerald-400 mb-1">Command Center</span>
+              <h2 className="text-lg font-black tracking-wider uppercase">System Menu</h2>
+            </div>
+            <button onClick={() => setIsMenuOpen(false)} className="w-10 h-10 rounded-xl bg-white-5 flex items-center justify-center hover:bg-white-10 text-white-40 transition-all">
+              <X size={18} />
+            </button>
+          </div>
+          <div className="flex flex-col gap-2 px-3">
+            <MenuOption icon={<Layout />} title="Modules Hub" desc="System Overview" color="var(--accent-cyan)" onClick={() => setCurrentView('landing')} />
+            <MenuOption icon={<Database />} title="Scrubber" desc="Data Sanitation" color="var(--accent-blue)" onClick={() => setCurrentView('dashboard')} />
+            <MenuOption icon={<History />} title="Scrub History" desc="Execution Logs" color="var(--accent-emerald)" onClick={() => setIsHistoryModalOpen(true)} />
+            <MenuOption icon={<Activity />} title="System Activity" desc="Performance" color="var(--accent-purple)" onClick={() => { }} />
+          </div>
+
+          <div className="mt-4 px-6 pt-6 border-t border-white-5">
+            <span className="text-[9px] font-black uppercase tracking-[0.2em] block mb-4 opacity-40">Themes</span>
+            <div className="flex gap-2">
+              {themes.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => {
+                    setTheme(t);
+                    localStorage.setItem('obd-theme', t);
+                    document.documentElement.setAttribute('data-theme', t);
+                  }}
+                  className={`flex-1 h-10 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all ${theme === t
+                    ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
+                    : 'border-white-5 bg-white-5 text-white/40 hover:text-white-60'
+                    }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-auto px-8 py-8 border-t border-white-5">
+            <button
+              onClick={() => {
+                handleLogout();
+                setIsMenuOpen(false);
+              }}
+              className="w-full py-4 rounded-3xl bg-rose-500/10 border border-rose-500/20 text-rose-500 font-bold uppercase tracking-widest text-xs hover:bg-rose-500 hover:text-white transition-all"
+            >
+              <LogOut size={16} className="inline mr-2" /> LOGOUT
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   if (currentView === 'landing') {
     return (
@@ -1045,7 +1124,7 @@ export default function Dashboard() {
         </div>
 
         {/* Cinematic Header */}
-        <div className="flex justify-between items-center z-50 w-full" style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '40px 60px' }}>
+        <div className="flex justify-between items-center z-50 w-full" style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '40px 80px' }}>
           <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <button
               onClick={toggleTheme}
@@ -1080,7 +1159,7 @@ export default function Dashboard() {
               onClick={handleLogout}
               className="flex items-center gap-3 px-6 h-14 rounded-2xl border border-rose-500/20 bg-rose-500/5 text-rose-500 font-bold tracking-widest text-[11px] uppercase hover:bg-rose-500 hover:text-white transition-all duration-300 shadow-xl"
             >
-              <LogOut size={16} /> LOGOUT
+              <LogOut size={14} /> LOGOUT
             </button>
           </motion.div>
         </div>
@@ -1093,23 +1172,23 @@ export default function Dashboard() {
           className="relative z-10 w-full flex flex-col items-center justify-center min-h-screen pt-20"
         >
           {/* Centered Brand Header */}
-          <div className="flex flex-col items-center text-center mb-10">
-            <h1 className="font-black tracking-[0.4em] uppercase leading-none" style={{
-              fontSize: '3.5rem',
+          <div className="flex flex-col items-center text-center mb-12">
+            <h1 className="font-black tracking-[0.5em] uppercase leading-none" style={{
+              fontSize: '3rem',
               margin: 0,
-              filter: 'drop-shadow(0 0 40px rgba(16, 185, 129, 0.25))',
+              color: 'var(--text-main)',
+              filter: 'drop-shadow(0 0 30px rgba(16, 185, 129, 0.15))',
             }}>
-              <span style={{ color: '#000000' }}>BLACK N </span>
-              <span style={{
+              BLACK N <span style={{
                 color: '#00f5a0',
-                textShadow: '0 0 20px rgba(0, 245, 160, 0.4)'
+                textShadow: '0 0 50px rgba(0, 245, 160, 0.3)'
               }}>GREEN</span>
             </h1>
-            <div className="h-[3px] w-32 bg-gradient-to-r from-transparent via-emerald-400 to-transparent mt-8 rounded-full opacity-60" />
+            <p className="mt-4 text-[10px] font-black uppercase tracking-[0.3em] opacity-40">Cognitive Orchestration Suite</p>
           </div>
 
-          {/* Module Grid Row */}
-          <div className="flex flex-row flex-nowrap items-center justify-center gap-8 px-12 w-full max-w-[1500px] overflow-x-auto pb-16 custom-scrollbar no-scrollbar-at-full">
+          {/* Module Grid Row - Perfectly Symmetrical Grid */}
+          <div className="flex flex-row flex-nowrap items-stretch justify-center gap-10 px-24 w-full max-w-[1600px] overflow-x-auto pb-24 custom-scrollbar no-scrollbar-at-full">
             <ModuleCard
               icon={<Database size={24} strokeWidth={1.5} />}
               title="Scrubber"
@@ -1140,6 +1219,7 @@ export default function Dashboard() {
             />
           </div>
         </motion.div>
+        <GlobalSidebar />
       </div>
     );
   }
@@ -1160,16 +1240,16 @@ export default function Dashboard() {
             width: '100%',
           }}
         >
-          <div className="flex items-center justify-between w-full px-10 py-5">
+          <div className="flex items-center justify-between w-full px-24 py-8">
             <div className="flex items-center gap-8">
               <div className="flex items-center gap-6">
                 <button
                   onClick={() => setCurrentView('landing')}
-                  className="w-14 h-14 rounded-3xl glass-action flex items-center justify-center hover:scale-110 transition-all shadow-2xl relative group overflow-hidden"
+                  className="w-14 h-5 rounded-3xl glass-action flex items-center justify-center hover:scale-110 transition-all shadow-2xl relative group overflow-hidden"
                   style={{ background: 'var(--accent-purple)', border: '2px solid rgba(255,255,255,0.2)' }}
                   aria-label="Back to System Navigator"
                 >
-                  <Menu size={24} className="text-black" strokeWidth={2.5} />
+                  <Menu size={16} className="text-black" strokeWidth={2.5} />
                 </button>
                 <div className="flex flex-col">
                   <div className="flex items-center gap-3">
@@ -1200,6 +1280,7 @@ export default function Dashboard() {
             allow="accelerometer; autoplay; camera; gyroscope; microphone; clipboard-read; clipboard-write;"
           />
         </div>
+        <GlobalSidebar />
       </div>
     );
   }
@@ -1217,7 +1298,7 @@ export default function Dashboard() {
             width: '100%',
           }}
         >
-          <div className="flex items-center justify-between w-full px-10 py-5">
+          <div className="flex items-center justify-between w-full px-24 py-8">
             <div className="flex items-center gap-8">
               <div className="flex items-center gap-6">
                 <button
@@ -1258,7 +1339,6 @@ export default function Dashboard() {
                 >
                   <Palette size={18} />
                 </button>
-
                 <button
                   onClick={handleLogout}
                   className="flex items-center gap-4 px-7 h-11 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-500 font-extrabold tracking-[0.2em] text-[11px] uppercase hover:bg-rose-500 hover:text-white transition-all duration-300 shadow-xl"
@@ -1270,83 +1350,9 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Sidebar Navigation */}
-        <AnimatePresence>
-          {isMenuOpen && (
-            <>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setIsMenuOpen(false)}
-                className="fixed inset-0 z-40"
-                style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(10px)' }}
-              />
-              <motion.div
-                initial={{ x: -400 }}
-                animate={{ x: 0 }}
-                exit={{ x: -400 }}
-                className="fixed top-0 left-0 h-full z-50 glass-panel"
-                style={{
-                  width: 'min(340px, 88vw)',
-                  borderRadius: '0 32px 32px 0',
-                  padding: '48px 0',
-                  borderLeft: 'none'
-                }}
-              >
-                <div className="px-12 mb-16 flex justify-between items-center">
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-black uppercase tracking-[0.4em] text-emerald-400 mb-2">Command Center</span>
-                    <h2 className="text-2xl font-black tracking-wider uppercase">System Menu</h2>
-                  </div>
-                  <button onClick={() => setIsMenuOpen(false)} className="w-12 h-12 rounded-2xl bg-white-5 flex items-center justify-center hover:bg-white-10 text-white-40 transition-all">
-                    <X size={20} />
-                  </button>
-                </div>
-                <div className="flex flex-col gap-4 px-4">
-                  <MenuOption icon={<Layout size={28} />} title="Modules Hub" desc="Switch system modules" color="var(--accent-cyan)" onClick={() => { setCurrentView('landing'); setIsMenuOpen(false); }} />
-                  <MenuOption icon={<Database size={28} />} title="Scrubber" desc="MSISDN sanitation engine" color="var(--accent-blue)" onClick={() => { setCurrentView('dashboard'); setIsMenuOpen(false); }} />
-                  <MenuOption icon={<Users size={28} />} title="Flow Diagram" desc="SCP IVR flow visualizer" color="var(--accent-emerald)" onClick={() => { setCurrentView('flowdiagram'); setIsMenuOpen(false); }} />
-                  <MenuOption icon={<History size={28} />} title="Scrub History" desc="View past execution logs" color="var(--accent-purple)" onClick={() => { setIsHistoryModalOpen(true); setIsMenuOpen(false); }} />
-                </div>
-
-                <div className="mt-auto px-8 py-8 border-t border-white-5">
-                  <button
-                    onClick={() => {
-                      handleLogout();
-                      setIsMenuOpen(false);
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: '16px',
-                      borderRadius: '20px',
-                      background: 'rgba(244, 63, 94, 0.1)',
-                      color: 'var(--accent-rose)',
-                      border: '1px solid rgba(244, 63, 94, 0.2)',
-                      fontSize: '0.75rem',
-                      fontWeight: '800',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.2em',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '12px',
-                      transition: 'all 0.3s'
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(244, 63, 94, 0.2)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(244, 63, 94, 0.1)'}
-                  >
-                    <LogOut size={16} /> LOGOUT
-                  </button>
-                </div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
-
         {/* Flow Diagram Content */}
         <SCPFlowDiagram />
+        <GlobalSidebar />
       </div>
     );
   }
@@ -1363,7 +1369,7 @@ export default function Dashboard() {
           width: '100%',
         }}
       >
-        <div className="flex items-center justify-between w-full px-10 py-5">
+        <div className="flex items-center justify-between w-full px-24 py-8">
           <div className="flex items-center gap-8">
             <div className="flex items-center gap-6">
               <button
@@ -1423,151 +1429,12 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Sidebar Navigation */}
-      <AnimatePresence>
-        {isMenuOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsMenuOpen(false)}
-              className="fixed inset-0 z-40"
-              style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(10px)' }}
-            />
-            <motion.div
-              initial={{ x: -400 }}
-              animate={{ x: 0 }}
-              exit={{ x: -400 }}
-              className="fixed top-0 left-0 h-full z-50 glass-panel"
-              style={{
-                width: 'min(340px, 88vw)',
-                borderRadius: '0 32px 32px 0',
-                padding: '48px 0',
-                borderLeft: 'none'
-              }}
-            >
-              <div className="px-12 mb-16 flex justify-between items-center">
-                <div className="flex flex-col">
-                  <span className="text-[10px] font-black uppercase tracking-[0.4em] text-emerald-400 mb-2">Command Center</span>
-                  <h2 className="text-2xl font-black tracking-wider uppercase">System Menu</h2>
-                </div>
-                <button onClick={() => setIsMenuOpen(false)} className="w-12 h-12 rounded-2xl bg-white-5 flex items-center justify-center hover:bg-white-10 text-white-40 transition-all">
-                  <X size={20} />
-                </button>
-              </div>
-              <div className="flex flex-col gap-4 px-4">
-                <MenuOption icon={<Layout size={28} />} title="Modules Hub" desc="Switch system modules" color="var(--accent-cyan)" onClick={() => setCurrentView('landing')} />
-                <MenuOption icon={<History size={28} />} title="Scrub History" desc="View past execution logs" color="var(--accent-emerald)" onClick={() => setIsHistoryModalOpen(true)} />
-                <MenuOption icon={<Database size={28} />} title="Database Engine" desc="Manage clean records" color="var(--accent-blue)" onClick={() => { }} />
-                <MenuOption icon={<Activity size={28} />} title="System Activity" desc="Real-time performance" color="var(--accent-purple)" onClick={() => { }} />
-              </div>
+      <GlobalSidebar />
 
-              {/* DESIGN STUDIO */}
-              <div className="mt-4 px-8 pt-8 border-t border-white-5">
-                <span className="text-[10px] font-black uppercase tracking-[0.3em] block mb-6" style={{ color: 'var(--accent-cyan)' }}>Design Studio</span>
-                <div className="grid grid-cols-2 gap-4 pb-8">
-                  {themes.map((t) => (
-                    <motion.button
-                      key={t}
-                      whileHover={{ y: -4, scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => {
-                        setTheme(t);
-                        localStorage.setItem('obd-theme', t);
-                        document.documentElement.setAttribute('data-theme', t);
-                      }}
-                      className={`group flex flex-col items-center justify-center p-4 rounded-3xl border transition-all duration-500 overflow-hidden relative ${theme === t
-                        ? 'border-emerald-400 bg-emerald-400/5 shadow-[0_0_30px_rgba(34,211,238,0.15)]'
-                        : 'border-white-5 bg-white-5 hover:border-white-20'
-                        }`}
-                    >
-                      {/* THEME SWATCH */}
-                      <div className="w-12 h-12 rounded-2xl mb-3 flex items-center justify-center relative overflow-hidden shadow-2xl border border-white-10 group-hover:rotate-6 transition-transform">
-                        <div className="absolute inset-0" style={{
-                          background: t === 'dark' ? 'linear-gradient(135deg, #020617 0%, #172554 100%)' :
-                            t === 'light' ? 'linear-gradient(135deg, #fff 0%, #dbeafe 100%)' :
-                              t === 'midnight' ? 'linear-gradient(135deg, #050510 0%, #312e81 100%)' :
-                                'linear-gradient(135deg, #1a1a61ff 0%, #4c1d95 100%)'
-                        }} />
-
-                        {/* Accent preview dots */}
-                        <div className="relative z-10 flex gap-1">
-                          <div className="w-1.5 h-1.5 rounded-full" style={{ background: t === 'midnight' ? '#818cf8' : 'var(--accent-cyan)' }} />
-                          <div className="w-1.5 h-1.5 rounded-full" style={{ background: t === 'midnight' ? '#c084fc' : 'var(--accent-blue)' }} />
-                        </div>
-
-                        {theme === t && (
-                          <motion.div
-                            layoutId="active-indicator"
-                            className="absolute inset-0 border-2 border-emerald-400 z-20 rounded-2xl"
-                          />
-                        )}
-                      </div>
-
-                      <div className="flex flex-col items-center gap-1">
-                        <span className="text-[9px] font-black uppercase tracking-widest" style={{ color: 'var(--text-main)' }}>{t}</span>
-                        {theme === t && (
-                          <span className="text-[7px] font-bold text-emerald-400 uppercase tracking-tighter">Active</span>
-                        )}
-                      </div>
-                    </motion.button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-auto px-8 py-8 border-t border-white-5">
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="relative">
-                    <div className="w-10 h-10 rounded-2xl bg-emerald-400/10 border border-emerald-400/20 flex items-center justify-center text-emerald-400 font-black text-sm">AD</div>
-                    <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-emerald-500 border-2 border-slate-900 animate-pulse" />
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-xs font-black text-white uppercase tracking-widest">Admin User</span>
-                    <span className="text-[10px] text-emerald-500/80 font-bold uppercase tracking-tighter">System Online</span>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center opacity-40 mb-6">
-                  <span className="text-[9px] font-bold uppercase tracking-[0.2em]">MOBICOM OBD v2.0</span>
-                  <span className="text-[9px] font-bold uppercase tracking-tighter">© 2026 PR</span>
-                </div>
-                <button
-                  onClick={() => {
-                    handleLogout();
-                    setIsMenuOpen(false);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '16px',
-                    borderRadius: '20px',
-                    background: 'rgba(244, 63, 94, 0.1)',
-                    color: 'var(--accent-rose)',
-                    border: '1px solid rgba(244, 63, 94, 0.2)',
-                    fontSize: '0.75rem',
-                    fontWeight: '800',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.2em',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '12px',
-                    transition: 'all 0.3s'
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(244, 63, 94, 0.2)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'rgba(244, 63, 94, 0.1)'}
-                >
-                  <LogOut size={16} /> LOGOUT
-                </button>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
 
       <motion.div
         key="dashboard-flow"
-        className="sequential-flow-container p-6"
+        className="sequential-flow-container"
         initial="hidden"
         animate="visible"
         variants={{
@@ -1577,18 +1444,18 @@ export default function Dashboard() {
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(2, 1fr)',
-          gap: '2rem',
+          gap: '2.5rem',
           width: '100%',
-          maxWidth: '1600px',
+          maxWidth: '1500px',
           margin: '0 auto',
-          paddingTop: '40px'
+          padding: '40px 60px 80px 60px'
         }}
       >
         {/* STEP 1: DATA INJECTION */}
         <motion.section
           className="glass-panel sequential-step"
           style={{
-            padding: '20px 24px',
+            padding: '32px 40px',
             boxShadow: '0 8px 32px rgba(0,0,0,0.02)',
             border: '1px solid var(--glass-border)',
             width: '100%',
@@ -1623,7 +1490,7 @@ export default function Dashboard() {
         <motion.section
           className="glass-panel sequential-step"
           style={{
-            padding: '20px 24px',
+            padding: '32px 40px',
             boxShadow: '0 8px 32px rgba(0,0,0,0.02)',
             border: '1px solid var(--glass-border)',
             width: '100%',
@@ -1687,7 +1554,7 @@ export default function Dashboard() {
         <motion.section
           className="glass-panel sequential-step"
           style={{
-            padding: '20px 24px',
+            padding: '32px 40px',
             boxShadow: '0 8px 32px rgba(0,0,0,0.02)',
             border: '1px solid var(--glass-border)',
             width: '100%',
@@ -1772,7 +1639,7 @@ export default function Dashboard() {
         <motion.section
           className="glass-panel sequential-step"
           style={{
-            padding: '20px 24px',
+            padding: '32px 40px',
             boxShadow: '0 8px 32px rgba(0,0,0,0.02)',
             border: '1px solid var(--glass-border)',
             width: '100%',
@@ -2179,7 +2046,7 @@ export default function Dashboard() {
                   )}
                   {voipLoading ? 'CONNECTING VOIP...' : 'TRIGGER VOIP CALL NOW'}
                 </button>
-                
+
                 <button
                   type="button"
                   onClick={stopAllCalls}

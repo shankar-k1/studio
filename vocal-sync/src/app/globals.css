@@ -1,20 +1,29 @@
 @import "tailwindcss";
 
 :root {
-  --bg: var(--bg-primary, #f7f3ec);
-  --bg-deep: var(--bg-primary, #ece2d3);
-  --ink: var(--text-primary, #18161f);
-  --muted: var(--text-secondary, #6f6a74);
-  --card: var(--bg-card, rgba(255, 252, 247, 0.72));
-  --card-strong: var(--bg-card, rgba(255, 253, 249, 0.9));
-  --line: var(--line, rgba(24, 22, 31, 0.08));
-  --line-strong: var(--line, rgba(24, 22, 31, 0.14));
-  --accent: var(--primary, #ee6c4d);
-  --accent-soft: rgba(var(--primary-rgb, 238, 108, 77), 0.1);
-  --accent-alt: var(--secondary, #1f6c5d);
-  --accent-alt-soft: rgba(var(--secondary-rgb, 31, 108, 93), 0.08);
-  --warning: #b6482f;
-  --shadow: 0 20px 56px rgba(0, 0, 0, 0.08);
+  /* Unified SCP Palette */
+  --accent-cyan: #34d399;
+  --accent-blue: #3b82f6;
+  --accent-purple: #c084fc;
+  --accent-primary: #34d399; /* Emerald */
+  --accent-secondary: #3b82f6; /* Blue */
+
+  --bg-main: #0b1220;
+  --bg-glass: rgba(14, 24, 41, 0.7);
+  --bg-glass-heavy: rgba(11, 18, 32, 0.9);
+  --text-main: #e8f4ff;
+  --text-muted: #8aafd4;
+  --text-dim: #4d7299;
+  --line: #1c2e47;
+
+  /* Legacy compatibility for components */
+  --bg: var(--bg-main);
+  --ink: var(--text-main);
+  --muted: var(--text-muted);
+  --card: var(--bg-glass);
+  --accent: var(--accent-primary);
+  --accent-alt: var(--accent-secondary);
+  --shadow: 0 20px 56px rgba(0, 0, 0, 0.4);
 }
 
 @theme inline {
@@ -34,13 +43,18 @@ html {
 
 body {
   min-height: 100vh;
-  background-color: var(--bg);
-  color: var(--ink);
-  font-family: var(--font-body), sans-serif;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  font-family: 'Inter', 'Outfit', system-ui, -apple-system, sans-serif;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color 0.4s ease, color 0.4s ease;
+  background-image: 
+    radial-gradient(circle at 10% 20%, rgba(96, 165, 250, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(52, 211, 153, 0.06) 0%, transparent 40%);
+  background-attachment: fixed;
+  background-size: cover;
 }
 
 body::before {
@@ -48,12 +62,9 @@ body::before {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background-image:
-    linear-gradient(rgba(24, 22, 31, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(24, 22, 31, 0.025) 1px, transparent 1px);
-  background-size: 32px 32px;
-  mask-image: radial-gradient(circle at center, black 55%, transparent 95%);
-  opacity: 0.28;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+  z-index: 0;
+  opacity: 0.4;
 }
 
 a {

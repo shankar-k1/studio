@@ -308,6 +308,26 @@ class DatabaseModule:
               created_at  DATETIME     DEFAULT CURRENT_TIMESTAMP,
               FOREIGN KEY (flow_id) REFERENCES flows(id) ON DELETE CASCADE
             )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS app_settings (
+              setting_key   VARCHAR(100) PRIMARY KEY,
+              setting_value TEXT,
+              updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS vocal_sync_history (
+              id              INT AUTO_INCREMENT PRIMARY KEY,
+              filename        VARCHAR(255),
+              original_text   TEXT,
+              translated_text TEXT,
+              source_lang     VARCHAR(10),
+              target_lang     VARCHAR(10),
+              output_url      TEXT,
+              metadata_json   TEXT,
+              created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
             """
         ]
         try:
@@ -1180,24 +1200,76 @@ class DatabaseModule:
                 flow = dict(flow)
                 nodes = conn.execute(text("SELECT * FROM nodes WHERE flow_id = :fid"), {"fid": flow['id']}).mappings().all()
                 nodes = [dict(n) for n in nodes]
-                for n in nodes:
-                    params = conn.execute(text("SELECT param_key, param_value FROM node_params WHERE node_id = :nid"), {"nid": n['id']}).mappings().all()
-                    n['params'] = {p['param_key']: p['param_value'] for p in params}
-                edges = conn.execute(text("SELECT * FROM edges WHERE flow_id = :fid"), {"fid": flow['id']}).mappings().all()
-                edges = [dict(e) for e in edges]
-                return {"flow": flow, "nodes": nodes, "edges": edges}
+                flow_dict = dict(flow)
+                fid = flow_dict["id"]
+                
+                # Fetch nodes
+                nodes = conn.execute(text("SELECT * FROM nodes WHERE flow_id = :fid"), {"fid": fid}).mappings().all()
+                flow_dict["nodes"] = [dict(n) for n in nodes]
+                
+                # Fetch edges
+                edges = conn.execute(text("SELECT * FROM edges WHERE flow_id = :fid"), {"fid": fid}).mappings().all()
+                flow_dict["edges"] = [dict(e) for e in edges]
+                
+                # Fetch explanations
+                expl = conn.execute(text("SELECT * FROM explanations WHERE flow_id = :fid ORDER BY section_order"), {"fid": fid}).mappings().all()
+                flow_dict["explanation"] = [dict(s) for s in expl]
+                
+                return flow_dict
         except Exception as e:
+            print(f"Error fetching flow: {e}")
             return None
 
     def delete_flow(self, flow_uuid: str):
+        if not self.engine: return False
         try:
             with self.engine.connect() as conn:
                 conn.execute(text("DELETE FROM flows WHERE uuid = :u"), {"u": flow_uuid})
                 conn.commit()
                 return True
-        except:
+        except Exception as e:
+            print(f"Error deleting flow: {e}")
             return False
 
+    def save_explanation(self, flow_uuid: str, sections: list):
+        if not self.engine: return False
+        try:
+            with self.engine.connect() as conn:
+                # Get flow id
+                fid = conn.execute(text("SELECT id FROM flows WHERE uuid = :u"), {"u": flow_uuid}).scalar()
+                if not fid: return False
+                
+                # Clear old explanations
+                conn.execute(text("DELETE FROM explanations WHERE flow_id = :fid"), {"fid": fid})
+                
+                # Insert new ones
+                for s in sections:
+                    conn.execute(text("""
+                        INSERT INTO explanations (flow_id, section_title, section_body, section_order)
+                        VALUES (:fid, :t, :b, :o)
+                    """), {
+                        "fid": fid,
+                        "t": s.get("title", ""),
+                        "b": s.get("body", ""),
+                        "o": s.get("order", 0)
+                    })
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error saving explanation: {e}")
+            return False
+
+    def get_explanation(self, flow_uuid: str):
+        if not self.engine: return []
+        try:
+            with self.engine.connect() as conn:
+                fid = conn.execute(text("SELECT id FROM flows WHERE uuid = :u"), {"u": flow_uuid}).scalar()
+                if not fid: return []
+                expl = conn.execute(text("SELECT * FROM explanations WHERE flow_id = :fid ORDER BY section_order"), {"fid": fid}).mappings().all()
+                return [dict(s) for s in expl]
+        except Exception as e:
+            print(f"Error fetching explanation: {e}")
+            return []
 
 
     def flush_scrub_queue(self):
@@ -1268,8 +1340,55 @@ class DatabaseModule:
                     "total_nodes": nodes,
                     "total_edges": edges,
                     "total_prompts": prompts,
-                    "total_explanations": explanations
+                    "audit_logs": explanations
                 }
-        except Exception as e:
-            print(f"Error fetching DB stats: {e}")
+        except Exception:
             return {}
+
+    def get_setting(self, key: str, default=None):
+        """Retrieves a setting value from the app_settings table."""
+        if not self.engine:
+            return default
+        try:
+            with self.engine.connect() as conn:
+                res = conn.execute(text("SELECT setting_value FROM app_settings WHERE setting_key = :k"), {"k": key}).fetchone()
+                return res[0] if res else default
+        except Exception as e:
+            print(f"Get setting error: {e}")
+            return default
+
+    def update_setting(self, key: str, value: str):
+        """Updates or inserts a setting value."""
+        if not self.engine:
+            return False
+        try:
+            with self.engine.connect() as conn:
+                conn.execute(
+                    text("INSERT INTO app_settings (setting_key, setting_value) VALUES (:k, :v) ON DUPLICATE KEY UPDATE setting_value = :v"),
+                    {"k": key, "v": value}
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"Update setting error: {e}")
+            return False
+
+    def add_vocal_sync_history(self, filename: str, original_text: str, translated_text: str, source_lang: str, target_lang: str, output_url: str, metadata_json: str = None):
+        if not self.engine: return
+        with self.engine.connect() as conn:
+            query = text("""
+                INSERT INTO vocal_sync_history (filename, original_text, translated_text, source_lang, target_lang, output_url, metadata_json)
+                VALUES (:f, :ot, :tt, :sl, :tl, :ou, :mj)
+            """)
+            conn.execute(query, {
+                "f": filename, "ot": original_text, "tt": translated_text,
+                "sl": source_lang, "tl": target_lang, "ou": output_url, "mj": metadata_json or "{}"
+            })
+            conn.commit()
+
+    def get_vocal_sync_history(self, limit: int = 50):
+        if not self.engine: return []
+        with self.engine.connect() as conn:
+            query = text("SELECT * FROM vocal_sync_history ORDER BY created_at DESC LIMIT :l")
+            result = conn.execute(query, {"l": limit})
+            return [dict(row._mapping) for row in result]
